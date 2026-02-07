@@ -64,8 +64,7 @@ h1 {
 }
 
 #browseBtn,
-.lookup-btn,
-.nav-btn {
+.lookup-btn {
   border: none;
   border-radius: 999px;
   padding: 14px 28px;
@@ -79,8 +78,7 @@ h1 {
 }
 
 #browseBtn:hover,
-.lookup-btn:hover,
-.nav-btn:hover {
+.lookup-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 14px 28px rgba(15, 91, 74, 0.35);
 }
@@ -142,6 +140,7 @@ h1 {
   width: 100%;
   overflow: hidden;
   border-radius: 16px;
+  touch-action: pan-y;
 }
 
 .slider-track {
@@ -174,11 +173,13 @@ h1 {
 .slider-nav {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
 }
 
-.nav-btn {
-  padding: 10px 18px;
+.slider-hint {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .slide-status {

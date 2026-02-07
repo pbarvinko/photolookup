@@ -7,9 +7,8 @@ const ctx = previewCanvas.getContext('2d');
 const lookupBtn = document.getElementById('lookupBtn');
 const debugBtn = document.getElementById('debugBtn');
 const results = document.getElementById('results');
+const slider = document.querySelector('.slider');
 const sliderTrack = document.getElementById('sliderTrack');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
 const slideStatus = document.getElementById('slideStatus');
 
 let currentImage = null;
@@ -22,6 +21,7 @@ let grabOffset = null;
 let selectedFile = null;
 let matches = [];
 let activeIndex = 0;
+let swipeStart = null;
 
 browseBtn.addEventListener('click', () => {
   fileInput.click();
@@ -190,7 +190,6 @@ function renderMatches() {
   }
   sliderTrack.innerHTML = '';
   const displayWidth = previewCanvas.getBoundingClientRect().width;
-  const slider = document.querySelector('.slider');
   if (slider) {
     slider.style.width = `${displayWidth}px`;
   }
@@ -226,19 +225,47 @@ function updateSlider() {
   activeIndex = clamped;
   sliderTrack.style.transform = `translateX(-${activeIndex * 100}%)`;
   slideStatus.textContent = `${activeIndex + 1} / ${count}`;
-  prevBtn.disabled = activeIndex === 0;
-  nextBtn.disabled = activeIndex === count - 1;
 }
 
-prevBtn.addEventListener('click', () => {
-  activeIndex -= 1;
-  updateSlider();
-});
+function clampActiveIndex() {
+  const count = Math.min(matches.length, 3);
+  activeIndex = Math.max(0, Math.min(activeIndex, count - 1));
+}
 
-nextBtn.addEventListener('click', () => {
-  activeIndex += 1;
+function onSliderPointerDown(event) {
+  const count = Math.min(matches.length, 3);
+  if (!count || count === 1 || !slider) return;
+  swipeStart = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+  };
+  slider.setPointerCapture(event.pointerId);
+}
+
+function onSliderPointerUp(event) {
+  if (!swipeStart || event.pointerId !== swipeStart.id) return;
+  const deltaX = event.clientX - swipeStart.x;
+  const deltaY = event.clientY - swipeStart.y;
+  swipeStart = null;
+  slider.releasePointerCapture(event.pointerId);
+  if (Math.abs(deltaX) < 40 || Math.abs(deltaX) < Math.abs(deltaY)) {
+    return;
+  }
+  if (deltaX < 0) {
+    activeIndex += 1;
+  } else {
+    activeIndex -= 1;
+  }
+  clampActiveIndex();
   updateSlider();
-});
+}
+
+if (slider) {
+  slider.addEventListener('pointerdown', onSliderPointerDown);
+  slider.addEventListener('pointerup', onSliderPointerUp);
+  slider.addEventListener('pointercancel', onSliderPointerUp);
+}
 
 function drawHandles(x0, y0, x1, y1) {
   const { length, thickness } = handleMetrics();
