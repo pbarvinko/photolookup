@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Photo lookup</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=dev5" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <h1>Photo lookup</h1>
+        <p class="sub">Find the closest match in your library.</p>
+        <div class="actions">
+          <input
+            id="fileInput"
+            type="file"
+            accept="image/*"
+            capture="environment"
+          />
+          <button id="browseBtn" type="button">Browse</button>
+        </div>
+        <div id="preview" class="preview" hidden>
+          <div class="preview-frame">
+            <canvas id="previewCanvas"></canvas>
+          </div>
+          <div id="fileMeta" class="file-meta"></div>
+        </div>
+        <div id="results" class="results" hidden>
+          <div class="slider">
+            <div id="sliderTrack" class="slider-track"></div>
+          </div>
+          <div class="slider-nav">
+            <button id="prevBtn" type="button" class="nav-btn">Prev</button>
+            <span id="slideStatus" class="slide-status"></span>
+            <button id="nextBtn" type="button" class="nav-btn">Next</button>
+          </div>
+        </div>
+        <div class="action-row">
+          <button id="lookupBtn" type="button" class="lookup-btn" disabled>Lookup</button>
+          <button id="debugBtn" type="button" class="lookup-btn" hidden>Save debug</button>
+        </div>
+      </section>
+    </main>
+    <script src="/assets/app.js?v=dev5"></script>
+  </body>
+</html>
