@@ -10,6 +10,8 @@ const results = document.getElementById('results');
 const slider = document.querySelector('.slider');
 const sliderTrack = document.getElementById('sliderTrack');
 const slideStatus = document.getElementById('slideStatus');
+const sliderPrev = document.getElementById('sliderPrev');
+const sliderNext = document.getElementById('sliderNext');
 
 let currentImage = null;
 let currentBBox = null;
@@ -189,10 +191,6 @@ function renderMatches() {
     return;
   }
   sliderTrack.innerHTML = '';
-  const displayWidth = previewCanvas.getBoundingClientRect().width;
-  if (slider) {
-    slider.style.width = `${displayWidth}px`;
-  }
   matches.slice(0, 3).forEach((match) => {
     const slide = document.createElement('div');
     slide.className = 'slide';
@@ -212,19 +210,41 @@ function renderMatches() {
   });
 
   results.hidden = false;
+  syncSliderSize();
   updateSlider();
 }
+
+function syncSliderSize() {
+  const rect = previewCanvas.getBoundingClientRect();
+  if (slider) {
+    slider.style.width = `${rect.width}px`;
+  }
+  sliderTrack.querySelectorAll('.slide img').forEach((img) => {
+    img.style.height = `${rect.height}px`;
+  });
+}
+
+const sliderResizeObserver = new ResizeObserver(() => {
+  if (!results.hidden) {
+    syncSliderSize();
+  }
+});
+sliderResizeObserver.observe(previewCanvas);
 
 function updateSlider() {
   const count = Math.min(matches.length, 3);
   if (!count) {
     slideStatus.textContent = '';
+    sliderPrev.hidden = true;
+    sliderNext.hidden = true;
     return;
   }
   const clamped = Math.max(0, Math.min(activeIndex, count - 1));
   activeIndex = clamped;
   sliderTrack.style.transform = `translateX(-${activeIndex * 100}%)`;
   slideStatus.textContent = `${activeIndex + 1} / ${count}`;
+  sliderPrev.hidden = activeIndex === 0;
+  sliderNext.hidden = activeIndex >= count - 1;
 }
 
 function clampActiveIndex() {
@@ -233,6 +253,7 @@ function clampActiveIndex() {
 }
 
 function onSliderPointerDown(event) {
+  if (event.target.closest('.slider-btn')) return;
   const count = Math.min(matches.length, 3);
   if (!count || count === 1 || !slider) return;
   swipeStart = {
@@ -266,6 +287,18 @@ if (slider) {
   slider.addEventListener('pointerup', onSliderPointerUp);
   slider.addEventListener('pointercancel', onSliderPointerUp);
 }
+
+sliderPrev.addEventListener('click', () => {
+  activeIndex -= 1;
+  clampActiveIndex();
+  updateSlider();
+});
+
+sliderNext.addEventListener('click', () => {
+  activeIndex += 1;
+  clampActiveIndex();
+  updateSlider();
+});
 
 function drawHandles(x0, y0, x1, y1) {
   const { length, thickness } = handleMetrics();
