@@ -39,14 +39,54 @@ class IndexStore:
         return self._items is not None and self._meta is not None
 
     def build(self) -> IndexData:
+        """Build the image index using parallel or sequential processing based on config."""
+        # Log each top-level directory
+        for lib_dir in self._config.image_library_dirs:
+            logger.info(f"Processing directory: {lib_dir}")
+
+        # Choose between parallel and sequential based on config
+        if self._config.build_workers == 1:
+            logger.info("Using sequential processing (build_workers=1)")
+            items, errors = self._build_sequential()
+        else:
+            try:
+                from .index_builder import build_index_parallel
+
+                paths = _iter_image_files(
+                    self._config.image_library_dirs,
+                    self._config.include_extensions
+                )
+                items, errors = build_index_parallel(
+                    paths,
+                    workers=self._config.build_workers
+                )
+            except Exception as exc:
+                logger.warning(f"Parallel processing failed ({exc}), falling back to sequential")
+                items, errors = self._build_sequential()
+
+        # Log total
+        logger.info(f"Index building complete: {len(items)} files processed, {len(errors)} errors")
+        if errors:
+            logger.warning(f"Encountered {len(errors)} errors during indexing")
+
+        # Create metadata
+        meta = {
+            "hash": get_hash_meta(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "library_dirs": list(self._config.image_library_dirs),
+            "errors": errors,
+        }
+
+        self._meta = meta
+        self._items = items
+        self._save()
+        return self.get_index()
+
+    def _build_sequential(self) -> tuple[dict[str, dict[str, str]], list[str]]:
+        """Sequential implementation of index building (original algorithm)."""
         items: dict[str, dict[str, str]] = {}
         errors: list[str] = []
         processed_count = 0
-
-        # Log each top-level directory
-        for lib_dir in self._config.image_library_dirs:
-            expanded_dir = os.path.expanduser(lib_dir)
-            logger.info(f"Processing directory: {lib_dir}")
 
         for path in _iter_image_files(self._config.image_library_dirs, self._config.include_extensions):
             try:
@@ -67,22 +107,7 @@ class IndexStore:
                 errors.append(error_msg)
                 logger.error(f"Failed to process image: {error_msg}")
 
-        # Log total
-        logger.info(f"Index building complete: {processed_count} files processed, {len(errors)} errors")
-        if errors:
-            logger.warning(f"Encountered {len(errors)} errors during indexing")
-
-        meta = {
-            "hash": get_hash_meta(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "library_dirs": list(self._config.image_library_dirs),
-            "errors": errors,
-        }
-
-        self._meta = meta
-        self._items = items
-        self._save()
-        return self.get_index()
+        return items, errors
 
     def get_index(self) -> "IndexData":
         if not self.is_loaded():

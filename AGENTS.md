@@ -68,6 +68,19 @@
   - Indexing uses EXIF transpose when loading originals.
   - `/api/lookup`, `/api/bbox`, `/api/debug` apply EXIF transpose on uploads server-side.
 
+## Index Building (Parallel Processing)
+- **Module**: `server/index_builder.py` contains parallel processing logic
+- **Configuration**: `build_workers` in config.json controls parallelization:
+  - `0` (default): Auto-detect (cpu_count - 1), typically 4-8 workers
+  - `1`: Sequential processing (original algorithm, useful for debugging)
+  - `N`: Parallel with N worker processes (always capped at cpu_count - 1)
+- **Progressive batch loading**: Images discovered via `os.walk` are batched (20 files) and submitted to workers immediately, no need to wait for full directory scan
+- **Worker function**: `_process_image_batch()` processes batches, returns (results, errors)
+- **Logging**: Progress logged every 100 files without total count (shown at completion)
+- **Performance**: Expected 4-6× speedup on 8-core systems vs sequential (5 files/sec → 25-30 files/sec)
+- **Fallback**: If parallel processing fails, automatically falls back to sequential with warning
+- **Hash consistency**: Same EXIF transpose and PHash algorithm as sequential, hashes are identical
+
 ## Web UI (current)
 - Minimal page in `server/web/` with subtitle and a Browse button (no heading).
 - Buttons styled Google Material 3: gray `#f8f9fa` background, `#dadce0` border, `#3c4043` text, sans-serif font (`Google Sans / Roboto`), pill `border-radius: 20px`.
