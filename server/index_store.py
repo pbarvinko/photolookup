@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from PIL import Image, ImageOps
 
 from .config import AppConfig
 from .phash_engine import compute_distance, create_hash, get_hash_meta
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -38,6 +41,12 @@ class IndexStore:
     def build(self) -> IndexData:
         items: dict[str, dict[str, str]] = {}
         errors: list[str] = []
+        processed_count = 0
+
+        # Log each top-level directory
+        for lib_dir in self._config.image_library_dirs:
+            expanded_dir = os.path.expanduser(lib_dir)
+            logger.info(f"Processing directory: {lib_dir}")
 
         for path in _iter_image_files(self._config.image_library_dirs, self._config.include_extensions):
             try:
@@ -47,8 +56,21 @@ class IndexStore:
                     "path": path,
                     "hash": _hash_image(image),
                 }
+                processed_count += 1
+
+                # Log progress every 100 files
+                if processed_count % 100 == 0:
+                    logger.info(f"Processed {processed_count} files...")
+
             except Exception as exc:
-                errors.append(f"{path}: {exc}")
+                error_msg = f"{path}: {exc}"
+                errors.append(error_msg)
+                logger.error(f"Failed to process image: {error_msg}")
+
+        # Log total
+        logger.info(f"Index building complete: {processed_count} files processed, {len(errors)} errors")
+        if errors:
+            logger.warning(f"Encountered {len(errors)} errors during indexing")
 
         meta = {
             "hash": get_hash_meta(),
@@ -95,24 +117,40 @@ class IndexStore:
         if info is None:
             return None
         if not os.path.exists(info.path):
+            logger.warning(f"Image file not found: {info.path} (id: {image_id})")
             return None
-        media_type = mimetypes.guess_type(info.path)[0] or "application/octet-stream"
-        with open(info.path, "rb") as f:
-            return f.read(), media_type
+        try:
+            media_type = mimetypes.guess_type(info.path)[0] or "application/octet-stream"
+            with open(info.path, "rb") as f:
+                return f.read(), media_type
+        except Exception as exc:
+            logger.error(f"Failed to read image file {info.path}: {exc}")
+            return None
 
     def _save(self) -> None:
-        os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
-        payload = {"meta": self._meta or {}, "items": self._items or {}}
-        with open(self._index_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, sort_keys=True)
+        try:
+            os.makedirs(os.path.dirname(self._index_path) or ".", exist_ok=True)
+            payload = {"meta": self._meta or {}, "items": self._items or {}}
+            with open(self._index_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, sort_keys=True)
+            logger.info(f"Saved index to {self._index_path}")
+        except Exception as exc:
+            logger.error(f"Failed to save index to {self._index_path}: {exc}")
+            raise
 
     def _load(self) -> None:
         if not os.path.exists(self._index_path):
+            logger.info(f"Index file not found: {self._index_path}")
             return
-        with open(self._index_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        self._meta = payload.get("meta", {})
-        self._items = payload.get("items", {})
+        try:
+            with open(self._index_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            self._meta = payload.get("meta", {})
+            self._items = payload.get("items", {})
+            logger.info(f"Loaded index with {len(self._items)} images from {self._index_path}")
+        except Exception as exc:
+            logger.error(f"Failed to load index from {self._index_path}: {exc}")
+            raise
 
 
 def _iter_image_files(paths: Iterable[str], extensions: Iterable[str]) -> Iterable[str]:

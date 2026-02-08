@@ -69,11 +69,15 @@
   - `/api/lookup`, `/api/bbox`, `/api/debug` apply EXIF transpose on uploads server-side.
 
 ## Web UI (current)
-- Minimal “Google-style” page in `server/web/` with “Photo lookup” title and a Browse button.
+- Minimal page in `server/web/` with subtitle and a Browse button (no heading).
+- Buttons styled Google Material 3: gray `#f8f9fa` background, `#dadce0` border, `#3c4043` text, sans-serif font (`Google Sans / Roboto`), pill `border-radius: 20px`.
 - After selection, the image is displayed on a canvas; `/api/bbox` is called and the bbox is drawn.
 - Bbox can be resized by dragging corner handles (L-shaped lines); high-contrast double-stroke rectangle for visibility and larger hit area near edges.
+- **Detected-image carousel**: Slider placeholder matches preview canvas dimensions (width + height) via `syncSliderSize()`. A `ResizeObserver` on `previewCanvas` keeps them in sync on resize. Images use `object-fit: contain; object-position: center` to fit without distortion.
+- **Slider nav buttons**: Circular prev/next buttons (`40×40`, `border-radius: 50%`) vertically centered inside the slider, inset 8px from edges. Shown/hidden per slide position. Swipe handler guards against button clicks (`event.target.closest('.slider-btn')`).
 - Mobile picker: `accept="image/*"` + `capture="environment"` encourages camera option.
 - UI renders images using EXIF orientation when supported (`createImageBitmap` with `imageOrientation: from-image`).
+- Cache-busting: `?v=devN` query params on CSS/JS links in `index.html`; bump on each change.
 
 ## Dev tools
 - `tools/build_index_cli.py` calls `/api/index`.

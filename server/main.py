@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import random
 import string
@@ -17,6 +18,14 @@ from .config import AppConfig, load_config
 from .index_store import IndexStore
 from .phash_engine import create_hash, get_hash_meta
 from .image_detection_engine import detect_main_image
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="PhotoLookup", version="0.1.0")
@@ -55,7 +64,12 @@ _INDEX_STORE = IndexStore(_CONFIG)
 
 @app.on_event("startup")
 def _load_index_on_startup() -> None:
+    logger.info("Loading index on startup...")
     _INDEX_STORE.init()
+    if _INDEX_STORE.is_loaded():
+        logger.info(f"Index loaded successfully: {_INDEX_STORE.get_count()} images")
+    else:
+        logger.warning("No index found. Build index to enable lookups.")
 
 
 def _open_uploaded_image(file: UploadFile) -> Image.Image:
@@ -64,6 +78,7 @@ def _open_uploaded_image(file: UploadFile) -> Image.Image:
         image = Image.open(BytesIO(data))
         return ImageOps.exif_transpose(image)
     except Exception as exc:
+        logger.error(f"Failed to open uploaded image: {exc}")
         raise HTTPException(status_code=400, detail=f"Invalid image: {exc}")
 
 
@@ -109,7 +124,9 @@ def index_status() -> dict[str, Any]:
 
 @app.post("/api/index")
 def build_index_endpoint() -> dict[str, Any]:
+    logger.info("Building index...")
     data = _INDEX_STORE.build()
+    logger.info(f"Index built successfully: {_INDEX_STORE.get_count()} images")
     return {
         "index_path": _CONFIG.index_path,
         "count": _INDEX_STORE.get_count(),
@@ -156,6 +173,7 @@ async def detect_bbox(file: UploadFile = File(...)) -> BBoxResponse:
 def get_image(image_id: str = Query(..., alias="id")) -> Response:
     blob = _INDEX_STORE.get_image_blob(image_id)
     if blob is None:
+        logger.warning(f"Image not found: {image_id}")
         raise HTTPException(status_code=404, detail="Image not found.")
     data, media_type = blob
     return Response(content=data, media_type=media_type)
