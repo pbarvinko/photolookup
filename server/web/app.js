@@ -318,6 +318,65 @@ function drawHandles(x0, y0, x1, y1) {
   corners.forEach((corner) => drawCornerLines(corner, length));
 }
 
+const FILM_RATIO = 3 / 2; // 35mm: 36×24mm
+
+function compute35mmFrame(bbox) {
+  const [x0, y0, x1, y1] = bbox;
+  const bw = x1 - x0;
+  const bh = y1 - y0;
+  if (bw <= 0 || bh <= 0) return null;
+  const targetRatio = bw >= bh ? FILM_RATIO : 1 / FILM_RATIO;
+  let fw, fh;
+  if (bw / bh > targetRatio) {
+    fh = bh;
+    fw = bh * targetRatio;
+  } else {
+    fw = bw;
+    fh = bw / targetRatio;
+  }
+  const cx = x0 + bw / 2;
+  const cy = y0 + bh / 2;
+  return [cx - fw / 2, cy - fh / 2, cx + fw / 2, cy + fh / 2];
+}
+
+function draw35mmGuide(frame) {
+  const [fx0, fy0, fx1, fy1] = frame;
+  const fw = fx1 - fx0;
+  const fh = fy1 - fy0;
+  const base = Math.min(previewCanvas.width, previewCanvas.height);
+  const outer = Math.max(4, base * 0.007);
+  const inner = Math.max(2, base * 0.004);
+  const dashLen = Math.max(8, base * 0.018);
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.setLineDash([dashLen, dashLen]);
+
+  ctx.lineWidth = outer;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.strokeRect(fx0, fy0, fw, fh);
+
+  ctx.lineWidth = inner;
+  ctx.strokeStyle = 'rgba(255, 180, 0, 1)';
+  ctx.strokeRect(fx0, fy0, fw, fh);
+
+  ctx.setLineDash([]);
+
+  const fontSize = Math.max(13, base * 0.028);
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const tx = fx0 + outer + 3;
+  const ty = fy0 + outer + 3;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.lineWidth = 3;
+  ctx.strokeText('35mm', tx, ty);
+  ctx.fillStyle = 'rgba(255, 180, 0, 1)';
+  ctx.fillText('35mm', tx, ty);
+
+  ctx.restore();
+}
+
 function render() {
   if (!currentImage) {
     return;
@@ -325,6 +384,8 @@ function render() {
   ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
   ctx.drawImage(currentImage, 0, 0);
   if (currentBBox) {
+    const frame = compute35mmFrame(currentBBox);
+    if (frame) draw35mmGuide(frame);
     drawBBox(currentBBox);
   }
 }
@@ -400,7 +461,16 @@ function onPointerDown(event) {
   const x = (event.clientX - rect.left) * scaleX;
   const y = (event.clientY - rect.top) * scaleY;
   const handle = hitHandle(x, y);
-  if (!handle) return;
+  if (!handle) {
+    const [bx0, by0, bx1, by1] = currentBBox;
+    if (x >= bx0 && x <= bx1 && y >= by0 && y <= by1) {
+      activeHandle = 'pan';
+      isDragging = true;
+      lastPointer = { x, y };
+      previewCanvas.setPointerCapture(event.pointerId);
+    }
+    return;
+  }
   activeHandle = handle;
   isDragging = true;
   lastPointer = { x, y };
@@ -426,6 +496,21 @@ function onPointerMove(event) {
   const { scaleX, scaleY, rect } = canvasScale();
   const x = (event.clientX - rect.left) * scaleX;
   const y = (event.clientY - rect.top) * scaleY;
+  if (activeHandle === 'pan') {
+    const dx = x - lastPointer.x;
+    const dy = y - lastPointer.y;
+    lastPointer = { x, y };
+    let [x0, y0, x1, y1] = currentBBox;
+    const w = x1 - x0;
+    const h = y1 - y0;
+    x0 += dx;
+    y0 += dy;
+    x0 = Math.max(0, Math.min(x0, previewCanvas.width - 1 - w));
+    y0 = Math.max(0, Math.min(y0, previewCanvas.height - 1 - h));
+    currentBBox = [x0, y0, x0 + w, y0 + h];
+    render();
+    return;
+  }
   lastPointer = { x, y };
   updateBBoxFromHandle(activeHandle, x, y);
 }
