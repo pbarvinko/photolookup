@@ -16,7 +16,7 @@ THRESH_BLEND = 0.5
 TOP_GRAD_GUARD_MIN_FRAC = 0.02
 
 MAIN_IMAGE_MIN_AREA_RATIO = 0.6
-TOP_AREA_MAX_RATIO = 0.85
+TOP_AREA_MAX_RATIO = 0.77  # Lower threshold to catch multi-image cases
 TOP_AREA_TARGET_RATIO = 0.72
 LEFT_SEGMENT_RATIO_THRESHOLD = 0.55
 BOTTOM_VAR_RATIO_THRESHOLD = 0.5
@@ -193,6 +193,114 @@ def _find_right(
     return int(np.argmax(col_diff[right_min : width - 1])) + right_min
 
 
+def _refine_to_inner_edge(
+    edge_pos: int,
+    edge_profile: np.ndarray,
+    gray: np.ndarray,
+    axis: int,
+    direction: int,
+    search_range: int = 50,
+) -> int:
+    """
+    Refine an edge to prefer inner edge (border->image) over outer edge (background->border).
+
+    CONSERVATIVE: Only refines when there's STRONG evidence of outer edge (border with low variance).
+    This avoids false positives on images with internal structure like horizons.
+
+    Args:
+        edge_pos: Current edge position in diff coordinates (0-indexed)
+        edge_profile: row_diff or col_diff array
+        gray: Grayscale image array
+        axis: 0 for row (top/bottom edges), 1 for col (left/right edges)
+        direction: +1 for top/left (scan inward), -1 for bottom/right (scan outward)
+        search_range: Maximum distance to search for better edge
+    """
+    height, width = gray.shape
+
+    if axis == 0:  # Row-wise (top or bottom edge)
+        if direction > 0:  # Top edge
+            if edge_pos >= height - 20 or edge_pos < 5:
+                return edge_pos
+
+            # Check if current edge is "outer" (variance above >> variance below)
+            var_above = gray[max(0, edge_pos-8):edge_pos+1, :].var() if edge_pos >= 8 else 0.1
+            var_below = gray[edge_pos+1:min(height, edge_pos+25), :].var() if edge_pos + 25 < height else 0.1
+
+            # VERY conservative: only refine if variance below is much lower (clear border)
+            if var_below < var_above * 0.6:  # Strong outer edge signal required
+                # Search for inner edge (where variance below > variance above)
+                for offset in range(15, min(search_range, height - edge_pos - 25)):
+                    candidate = edge_pos + offset
+                    if candidate >= len(edge_profile):
+                        break
+                    # Must have strong edge strength (not just any internal feature)
+                    if edge_profile[candidate] >= edge_profile[edge_pos] * 0.7:
+                        test_var_above = gray[max(0, candidate-8):candidate+1, :].var()
+                        test_var_below = gray[candidate+1:min(height, candidate+25), :].var()
+                        if test_var_below > test_var_above * 2.5:  # Very strong inner edge required
+                            return candidate
+
+        else:  # Bottom edge (direction < 0)
+            if edge_pos < 20 or edge_pos >= height - 5:
+                return edge_pos
+
+            var_above = gray[max(0, edge_pos-25):edge_pos+1, :].var() if edge_pos >= 25 else 0.1
+            var_below = gray[edge_pos+1:min(height, edge_pos+9), :].var() if edge_pos + 9 < height else 0.1
+
+            # Slightly relaxed for bottom edge
+            if var_above < var_below * 0.75:  # Less conservative
+                for offset in range(15, min(search_range, edge_pos - 25)):
+                    candidate = edge_pos - offset
+                    if candidate < 0 or candidate >= len(edge_profile):
+                        break
+                    if edge_profile[candidate] >= edge_profile[edge_pos] * 0.6:  # Relaxed
+                        test_var_above = gray[max(0, candidate-25):candidate+1, :].var()
+                        test_var_below = gray[candidate+1:min(height, candidate+9), :].var()
+                        if test_var_above > test_var_below * 2.0:  # Relaxed
+                            return candidate
+
+    else:  # Column-wise (left or right edge)
+        if direction > 0:  # Left edge
+            if edge_pos >= width - 20 or edge_pos < 5:
+                return edge_pos
+
+            var_left = gray[:, max(0, edge_pos-8):edge_pos+1].var() if edge_pos >= 8 else 0.1
+            var_right = gray[:, edge_pos+1:min(width, edge_pos+25)].var() if edge_pos + 25 < width else 0.1
+
+            # Slightly less conservative for left edge (common leftover image issue)
+            if var_right < var_left * 0.8:  # Relaxed threshold for left edge
+                for offset in range(15, min(search_range, width - edge_pos - 25)):
+                    candidate = edge_pos + offset
+                    if candidate >= len(edge_profile):
+                        break
+                    if edge_profile[candidate] >= edge_profile[edge_pos] * 0.6:  # Slightly relaxed
+                        test_var_left = gray[:, max(0, candidate-8):candidate+1].var()
+                        test_var_right = gray[:, candidate+1:min(width, candidate+25)].var()
+                        if test_var_right > test_var_left * 2.0:  # Slightly relaxed
+                            return candidate
+
+        else:  # Right edge (direction < 0)
+            if edge_pos < 20 or edge_pos >= width - 5:
+                return edge_pos
+
+            var_left = gray[:, max(0, edge_pos-25):edge_pos+1].var() if edge_pos >= 25 else 0.1
+            var_right = gray[:, edge_pos+1:min(width, edge_pos+9)].var() if edge_pos + 9 < width else 0.1
+
+            # Slightly relaxed for right edge
+            if var_left < var_right * 0.75:  # Less conservative
+                for offset in range(15, min(search_range, edge_pos - 25)):
+                    candidate = edge_pos - offset
+                    if candidate < 0 or candidate >= len(edge_profile):
+                        break
+                    if edge_profile[candidate] >= edge_profile[edge_pos] * 0.6:  # Relaxed
+                        test_var_left = gray[:, max(0, candidate-25):candidate+1].var()
+                        test_var_right = gray[:, candidate+1:min(width, candidate+9)].var()
+                        if test_var_left > test_var_right * 2.0:  # Relaxed
+                            return candidate
+
+    return edge_pos  # No refinement needed/found
+
+
 def detect_main_image(pil_image: Image.Image) -> tuple[int, int, int, int]:
     """Detect main image rectangle and return (x0, y0, x1, y1) inclusive."""
     image = pil_image.convert("RGB")
@@ -234,6 +342,19 @@ def detect_main_image(pil_image: Image.Image) -> tuple[int, int, int, int]:
     y1 = _find_bottom(row_diff, diff_height, bottom_min, border_rows, interior_rows) + 1
     x0 = _find_left(col_diff, diff_width, left_max, border_cols, interior_cols) + 1
     x1 = _find_right(col_diff, diff_width, right_max, right_min, border_cols, interior_cols) + 1
+
+    # NEW: Refine edges to prefer inner edges (border->image) over outer edges (background->border)
+    y0_refined = _refine_to_inner_edge(y0 - 1, row_diff, gray, axis=0, direction=+1)
+    y1_refined = _refine_to_inner_edge(y1 - 1, row_diff, gray, axis=0, direction=-1)
+    x0_refined = _refine_to_inner_edge(x0 - 1, col_diff, gray, axis=1, direction=+1)
+    x1_refined = _refine_to_inner_edge(x1 - 1, col_diff, gray, axis=1, direction=-1)
+
+    # Only accept refinement if it results in a valid bbox
+    if x0_refined < x1_refined and y0_refined < y1_refined:
+        y0 = y0_refined + 1
+        y1 = y1_refined + 1
+        x0 = x0_refined + 1
+        x1 = x1_refined + 1
 
     # Bottom refinement: when border is noisy and variance drops sharply, use variance for bottom edge.
     bottom_border_med = float(np.median(row_diff[-border_rows:]))

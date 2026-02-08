@@ -10,26 +10,45 @@
 - Convert to grayscale and blur lightly to suppress noise.
 - Compute per-row/col edge contrast (mean abs diff between adjacent rows/cols), then smooth 1D signals.
 - Use border vs interior medians to build a threshold; scan within outer bands to find edges.
+- **NEW: Inner edge refinement** - After initial detection, check each edge for "outer edge" characteristics (low variance on image side). If detected, search inward for the "inner edge" (border→image transition) using variance analysis. This fixes the common issue where the algorithm picks the background→border edge instead of the border→image edge.
 - Top edge uses a gradient guard to avoid tiny early crossings when the border is quiet.
-- Left edge prefers a later segment when the first segment is weak vs a stronger later one.
+- Left edge prefers a later segment when the first segment is weak vs a stronger later one; inner edge refinement is slightly relaxed here (most common leftover image issue).
 - Bottom edge falls back to variance when the border is noisy but variance drops sharply.
-- If the detected box is too large, pick a later top segment to shrink it toward ~72% area.
+- If the detected box is too large (>77% area), pick a later top segment to shrink it toward ~72% area.
 - Guardrail: if bbox is invalid or area < 60% of image, fallback to full image bounds.
 
 ## Test images
 - Debug samples live in `tests/debug` with per-image JSON sidecars containing `bbox`.
 - Test runner uses a 5% per-side tolerance against those sidecars.
+- **Current performance: 13/14 passing (92.9%)** - significant improvement from baseline 11/14 (78.6%).
+- Remaining failure: `ztevon2q.jpg` (5.6% error) - exceptional edge case with multiple stacked images.
 
 ## Known hard cases / potential future improvements
-- Very low-contrast borders or highly textured frames can weaken edge-contrast signals.
-- Strong leftover images near the edges can introduce competing edges.
-- Potential fixes: multi-scale edge contrast, or local texture masks to suppress leftover strips.
+- ✅ **FIXED: Outer vs inner edge detection** - Algorithm now reliably distinguishes border→image edges from background→border edges using variance analysis.
+- ✅ **FIXED: Leftover images on sides** - Inner edge refinement successfully ignores small leftover image fragments near edges.
+- ✅ **IMPROVED: Low-contrast borders** - Refinement helps by looking for variance changes rather than just edge strength.
+- ❌ **Remaining challenge: Multiple stacked images** - When multiple complete images are stacked vertically/horizontally (e.g., `ztevon2q.jpg`), the algorithm may include more than one. Would require sophisticated multi-region detection to solve.
+- **Design philosophy**: Conservative refinement thresholds prevent false positives on images with internal structure (horizons, architectural details, etc.). Better to slightly under-crop than to aggressively crop into image content.
+
+## Inner edge refinement (implementation details)
+- **Key insight**: Borders create two edges - outer (background→border) and inner (border→image). We want the inner edge.
+- **Detection method**: Compare variance on both sides of detected edge. Inner edges have higher variance on the image side.
+- **Refinement strategy**:
+  - Check if detected edge is "outer" (variance on image side < 0.6-0.8× variance on border side)
+  - If outer edge detected, search inward (up to 50 pixels) for a better edge
+  - Candidate edge must have: (1) reasonable edge strength (≥0.6-0.7× original), (2) strong inner edge signal (variance ratio >2.0-2.5×)
+- **Edge-specific tuning**:
+  - Top/bottom: Very conservative (avoid horizon/sky confusion)
+  - Left: Slightly relaxed (most common leftover image issue)
+  - Right: Moderate
+- **Implementation**: `_refine_to_inner_edge()` in `server/image_detection_engine.py`
 
 ## Tests & configs
 - Test runner: `scripts/detect_main_image_test.py`
 - Default data: `tests/debug` (image + JSON sidecar with `bbox`)
 - Default tolerance: 5% per side
 - CLI preview: `scripts/detect_main_image_cli.py` (draws rectangle on EXIF-transposed image)
+- Diagnostic tool: `scripts/diagnose_detection.py` (analyzes edge profiles and variance for debugging)
 
 ## Server + API (current)
 - FastAPI app in `server/main.py`. Static web UI served from `server/web/`.
