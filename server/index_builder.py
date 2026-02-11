@@ -6,24 +6,13 @@ import os
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from PIL import Image, ImageOps
-
-from .phash_engine import create_hash
+from . import hasher
+from .image_utils import load_image
 
 logger = logging.getLogger(__name__)
 
 # Default batch size for worker processing
 BATCH_SIZE = 20
-
-
-def _load_image(path: str) -> Image.Image:
-    """Load image and apply EXIF transpose."""
-    return ImageOps.exif_transpose(Image.open(path))
-
-
-def _hash_image(image: Image.Image) -> str:
-    """Create perceptual hash for the image."""
-    return create_hash(image, bbox=None)
 
 
 def _process_image_batch(paths: list[str]) -> tuple[list[dict[str, str]], list[str]]:
@@ -43,9 +32,9 @@ def _process_image_batch(paths: list[str]) -> tuple[list[dict[str, str]], list[s
 
     for path in paths:
         try:
-            image = _load_image(path)
+            image = load_image(path)
             image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
-            hash_value = _hash_image(image)
+            hash_value = hasher.hash_image(image)
             results.append(
                 {
                     "image_id": image_id,

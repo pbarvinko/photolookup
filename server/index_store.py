@@ -9,10 +9,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from PIL import Image, ImageOps
-
+from . import hasher
 from .config import AppConfig
-from .phash_engine import compute_distance, create_hash, get_hash_meta
+from .image_utils import load_image
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ class IndexStore:
         # Create metadata
         now = datetime.now(timezone.utc).isoformat()
         meta = {
-            "hash": get_hash_meta(),
+            "hash": hasher.get_metadata(),
             "created_at": now,
             "updated_at": now,
             "operation": "build",
@@ -95,11 +94,11 @@ class IndexStore:
             self._config.image_library_dirs, self._config.include_extensions
         ):
             try:
-                image = _load_image(path)
+                image = load_image(path)
                 image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
                 items[image_id] = {
                     "path": path,
-                    "hash": _hash_image(image),
+                    "hash": hasher.hash_image(image),
                 }
                 processed_count += 1
 
@@ -185,7 +184,7 @@ class IndexStore:
 
         # Step 6: Update metadata
         meta = {
-            "hash": get_hash_meta(),
+            "hash": hasher.get_metadata(),
             "created_at": self._meta.get("created_at")
             if self._meta
             else datetime.now(timezone.utc).isoformat(),
@@ -214,11 +213,11 @@ class IndexStore:
 
         for path in paths:
             try:
-                image = _load_image(path)
+                image = load_image(path)
                 image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
                 items[image_id] = {
                     "path": path,
-                    "hash": _hash_image(image),
+                    "hash": hasher.hash_image(image),
                 }
                 processed_count += 1
 
@@ -255,7 +254,7 @@ class IndexStore:
         results: list[dict[str, object]] = []
         for image_id, item in (self._items or {}).items():
             hash_value = item["hash"]
-            distance = compute_distance(query_hash, hash_value)
+            distance = hasher.compute_distance(query_hash, hash_value)
             results.append({"id": image_id, "path": item["path"], "distance": distance})
 
         results.sort(key=lambda item: item["distance"])
@@ -319,14 +318,6 @@ def _iter_image_files(paths: Iterable[str], extensions: Iterable[str]) -> Iterab
                 if ext.lower() not in ext_set:
                     continue
                 yield os.path.join(root, name)
-
-
-def _load_image(path: str) -> Image.Image:
-    return ImageOps.exif_transpose(Image.open(path))
-
-
-def _hash_image(image: Image.Image) -> str:
-    return create_hash(image, bbox=None)
 
 
 @dataclass(frozen=True)

@@ -14,10 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 
+from . import hasher
 from .config import AppConfig, load_config
 from .image_detection_engine import detect_main_image
 from .index_store import IndexStore
-from .phash_engine import create_hash, get_hash_meta
 
 # Configure logging
 logging.basicConfig(
@@ -176,7 +176,7 @@ async def lookup_image(
     effective_top_k = top_k if top_k is not None else _CONFIG.top_k_default
 
     image = _open_uploaded_image(file)
-    query_hash = create_hash(image, bbox=_parse_bbox(bbox))
+    query_hash = hasher.hash_image(image, bbox=_parse_bbox(bbox))
 
     matches = _INDEX_STORE.lookup_matches(query_hash, effective_top_k)
 
@@ -214,7 +214,7 @@ def get_config() -> JSONResponse:
             "index_path": _CONFIG.index_path,
             "top_k_default": _CONFIG.top_k_default,
             "include_extensions": _CONFIG.include_extensions,
-            "hash_meta": get_hash_meta(),
+            "hash_meta": hasher.get_metadata(),
             "debug_dir": _CONFIG.debug_dir,
         }
     )
