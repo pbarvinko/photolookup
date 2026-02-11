@@ -134,6 +134,9 @@ See [AGENTS.md](AGENTS.md) for detailed technical documentation.
 - **Perceptual hashing** works best for images with consistent content. Heavy crops, rotations, or added overlays may reduce accuracy.
 - **Boundary detection** struggles with multiple stacked images on a single page.
 - **Memory usage** scales with library size (typically 1-2 KB per image in the index).
+- **Corrupted image files**: Large photo libraries may contain corrupted or truncated image files (typically 0.01-0.1% of files). These files are automatically skipped during indexing and logged in the index metadata. Common causes include incomplete file transfers, disk errors, or issues during original file creation (especially for large panoramas or stitched images).
+- **Large panorama support**: Very large images (e.g., 8016×3776 panoramas, ~30MP) are supported but are more susceptible to corruption due to file size and complex encoding. Files with "broken data stream" errors indicate incomplete or corrupted JPEG data.
+- **Processing failures**: Failed images are collected in the index metadata (`meta.errors` field) and can be inspected via `/api/index/status` or the web UI modal. The index build continues even if individual files fail to process.
 
 ## License
 
