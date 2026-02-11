@@ -5,9 +5,9 @@ import json
 import logging
 import mimetypes
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Iterable
+from datetime import UTC, datetime
 
 from PIL import Image, ImageOps
 
@@ -53,13 +53,9 @@ class IndexStore:
                 from .index_builder import build_index_parallel
 
                 paths = _iter_image_files(
-                    self._config.image_library_dirs,
-                    self._config.include_extensions
+                    self._config.image_library_dirs, self._config.include_extensions
                 )
-                items, errors = build_index_parallel(
-                    paths,
-                    workers=self._config.build_workers
-                )
+                items, errors = build_index_parallel(paths, workers=self._config.build_workers)
             except Exception as exc:
                 logger.warning(f"Parallel processing failed ({exc}), falling back to sequential")
                 items, errors = self._build_sequential()
@@ -72,7 +68,7 @@ class IndexStore:
         # Create metadata
         meta = {
             "hash": get_hash_meta(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "library_dirs": list(self._config.image_library_dirs),
             "errors": errors,
         }
@@ -88,7 +84,9 @@ class IndexStore:
         errors: list[str] = []
         processed_count = 0
 
-        for path in _iter_image_files(self._config.image_library_dirs, self._config.include_extensions):
+        for path in _iter_image_files(
+            self._config.image_library_dirs, self._config.include_extensions
+        ):
             try:
                 image = _load_image(path)
                 image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
@@ -109,7 +107,7 @@ class IndexStore:
 
         return items, errors
 
-    def get_index(self) -> "IndexData":
+    def get_index(self) -> IndexData:
         if not self.is_loaded():
             raise ValueError("Index not loaded.")
         return IndexData(meta=self._meta or {}, items=self._items or {})
@@ -168,7 +166,7 @@ class IndexStore:
             logger.info(f"Index file not found: {self._index_path}")
             return
         try:
-            with open(self._index_path, "r", encoding="utf-8") as f:
+            with open(self._index_path, encoding="utf-8") as f:
                 payload = json.load(f)
             self._meta = payload.get("meta", {})
             self._items = payload.get("items", {})

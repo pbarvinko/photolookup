@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
 from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,7 +30,9 @@ def relative_errors(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate main image detection against expected bounds.")
+    parser = argparse.ArgumentParser(
+        description="Validate main image detection against expected bounds."
+    )
     parser.add_argument(
         "--data-dir",
         default=ROOT / "tests" / "debug",

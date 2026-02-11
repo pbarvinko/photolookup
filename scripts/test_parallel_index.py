@@ -2,6 +2,7 @@
 """
 Test script to verify parallel index building produces identical results to sequential.
 """
+
 from __future__ import annotations
 
 import sys
@@ -75,7 +76,7 @@ def test_index_building():
     print("\n3. Comparing results...")
 
     if len(parallel_items) != len(sequential_items):
-        print(f"   ❌ FAILED: Different number of items")
+        print("   ❌ FAILED: Different number of items")
         print(f"      Parallel: {len(parallel_items)}, Sequential: {len(sequential_items)}")
         return False
 
@@ -98,7 +99,7 @@ def test_index_building():
 
         if sequential_time > 0:
             speedup = sequential_time / parallel_time
-            print(f"\n4. Performance:")
+            print("\n4. Performance:")
             print(f"   Parallel:   {parallel_time:.2f}s")
             print(f"   Sequential: {sequential_time:.2f}s")
             print(f"   Speedup:    {speedup:.2f}x")

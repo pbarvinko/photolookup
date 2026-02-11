@@ -20,7 +20,7 @@ def _make_multipart(field_name: str, filename: str, data: bytes) -> tuple[bytes,
         "",
     ]
     body = "\r\n".join(lines).encode("utf-8") + b"\r\n" + data + b"\r\n"
-    body += f"--{boundary}--\r\n".encode("utf-8")
+    body += f"--{boundary}--\r\n".encode()
     return body, boundary
 
 

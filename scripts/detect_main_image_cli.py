@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageOps
 
 ROOT = Path(__file__).resolve().parents[1]

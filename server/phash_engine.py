@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
-from PIL import Image
 from perception.hashers.image import PHash
+from PIL import Image
 
-BBox = Tuple[int, int, int, int]
+BBox = tuple[int, int, int, int]
 
 HASH_TYPE = "phash"
 HASH_VERSION = 1
@@ -49,7 +47,7 @@ def _prepare_image(pil_image: Image.Image) -> Image.Image:
 
 def create_hash(
     pil_image: Image.Image,
-    bbox: Optional[BBox] = None,
+    bbox: BBox | None = None,
 ) -> str | list[str] | None:
     """Create a perceptual hash (pHash) for the image or a bbox region.
 

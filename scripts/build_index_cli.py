@@ -15,7 +15,12 @@ def main() -> int:
     if not base_url.startswith("http://") and not base_url.startswith("https://"):
         base_url = f"http://{base_url}"
 
-    req = request.Request(f"{base_url}/api/index", data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+    req = request.Request(
+        f"{base_url}/api/index",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         with request.urlopen(req) as resp:
             payload = json.loads(resp.read().decode("utf-8"))

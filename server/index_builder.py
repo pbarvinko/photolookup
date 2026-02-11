@@ -3,8 +3,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Iterable, Iterator
 
 from PIL import Image, ImageOps
 
@@ -46,11 +46,13 @@ def _process_image_batch(paths: list[str]) -> tuple[list[dict[str, str]], list[s
             image = _load_image(path)
             image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
             hash_value = _hash_image(image)
-            results.append({
-                "image_id": image_id,
-                "path": path,
-                "hash": hash_value,
-            })
+            results.append(
+                {
+                    "image_id": image_id,
+                    "path": path,
+                    "hash": hash_value,
+                }
+            )
         except Exception as exc:
             error_msg = f"{path}: {exc}"
             errors.append(error_msg)

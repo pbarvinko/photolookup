@@ -1,29 +1,29 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
 import string
+from io import BytesIO
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-import json
 from PIL import Image, ImageOps
-from io import BytesIO
+from pydantic import BaseModel
 
 from .config import AppConfig, load_config
+from .image_detection_engine import detect_main_image
 from .index_store import IndexStore
 from .phash_engine import create_hash, get_hash_meta
-from .image_detection_engine import detect_main_image
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def _open_uploaded_image(file: UploadFile) -> Image.Image:
         return ImageOps.exif_transpose(image)
     except Exception as exc:
         logger.error(f"Failed to open uploaded image: {exc}")
-        raise HTTPException(status_code=400, detail=f"Invalid image: {exc}")
+        raise HTTPException(status_code=400, detail=f"Invalid image: {exc}") from exc
 
 
 def _parse_bbox(bbox: str | None) -> tuple[int, int, int, int] | None:
@@ -91,7 +91,7 @@ def _parse_bbox(bbox: str | None) -> tuple[int, int, int, int] | None:
             raise ValueError("Expected 4 integers.")
         return (parts[0], parts[1], parts[2], parts[3])
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid bbox: {exc}")
+        raise HTTPException(status_code=400, detail=f"Invalid bbox: {exc}") from exc
 
 
 def _random_id(length: int = 8) -> str:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PIL import Image
-import numpy as np
 import cv2
+import numpy as np
+from PIL import Image
 
 MAX_DIM = 1000
 BLUR_KERNEL = (5, 5)
@@ -223,8 +223,12 @@ def _refine_to_inner_edge(
                 return edge_pos
 
             # Check if current edge is "outer" (variance above >> variance below)
-            var_above = gray[max(0, edge_pos-8):edge_pos+1, :].var() if edge_pos >= 8 else 0.1
-            var_below = gray[edge_pos+1:min(height, edge_pos+25), :].var() if edge_pos + 25 < height else 0.1
+            var_above = gray[max(0, edge_pos - 8) : edge_pos + 1, :].var() if edge_pos >= 8 else 0.1
+            var_below = (
+                gray[edge_pos + 1 : min(height, edge_pos + 25), :].var()
+                if edge_pos + 25 < height
+                else 0.1
+            )
 
             # VERY conservative: only refine if variance below is much lower (clear border)
             if var_below < var_above * 0.6:  # Strong outer edge signal required
@@ -235,8 +239,8 @@ def _refine_to_inner_edge(
                         break
                     # Must have strong edge strength (not just any internal feature)
                     if edge_profile[candidate] >= edge_profile[edge_pos] * 0.7:
-                        test_var_above = gray[max(0, candidate-8):candidate+1, :].var()
-                        test_var_below = gray[candidate+1:min(height, candidate+25), :].var()
+                        test_var_above = gray[max(0, candidate - 8) : candidate + 1, :].var()
+                        test_var_below = gray[candidate + 1 : min(height, candidate + 25), :].var()
                         if test_var_below > test_var_above * 2.5:  # Very strong inner edge required
                             return candidate
 
@@ -244,8 +248,14 @@ def _refine_to_inner_edge(
             if edge_pos < 20 or edge_pos >= height - 5:
                 return edge_pos
 
-            var_above = gray[max(0, edge_pos-25):edge_pos+1, :].var() if edge_pos >= 25 else 0.1
-            var_below = gray[edge_pos+1:min(height, edge_pos+9), :].var() if edge_pos + 9 < height else 0.1
+            var_above = (
+                gray[max(0, edge_pos - 25) : edge_pos + 1, :].var() if edge_pos >= 25 else 0.1
+            )
+            var_below = (
+                gray[edge_pos + 1 : min(height, edge_pos + 9), :].var()
+                if edge_pos + 9 < height
+                else 0.1
+            )
 
             # Slightly relaxed for bottom edge
             if var_above < var_below * 0.75:  # Less conservative
@@ -254,8 +264,8 @@ def _refine_to_inner_edge(
                     if candidate < 0 or candidate >= len(edge_profile):
                         break
                     if edge_profile[candidate] >= edge_profile[edge_pos] * 0.6:  # Relaxed
-                        test_var_above = gray[max(0, candidate-25):candidate+1, :].var()
-                        test_var_below = gray[candidate+1:min(height, candidate+9), :].var()
+                        test_var_above = gray[max(0, candidate - 25) : candidate + 1, :].var()
+                        test_var_below = gray[candidate + 1 : min(height, candidate + 9), :].var()
                         if test_var_above > test_var_below * 2.0:  # Relaxed
                             return candidate
 
@@ -264,8 +274,12 @@ def _refine_to_inner_edge(
             if edge_pos >= width - 20 or edge_pos < 5:
                 return edge_pos
 
-            var_left = gray[:, max(0, edge_pos-8):edge_pos+1].var() if edge_pos >= 8 else 0.1
-            var_right = gray[:, edge_pos+1:min(width, edge_pos+25)].var() if edge_pos + 25 < width else 0.1
+            var_left = gray[:, max(0, edge_pos - 8) : edge_pos + 1].var() if edge_pos >= 8 else 0.1
+            var_right = (
+                gray[:, edge_pos + 1 : min(width, edge_pos + 25)].var()
+                if edge_pos + 25 < width
+                else 0.1
+            )
 
             # Slightly less conservative for left edge (common leftover image issue)
             if var_right < var_left * 0.8:  # Relaxed threshold for left edge
@@ -274,8 +288,8 @@ def _refine_to_inner_edge(
                     if candidate >= len(edge_profile):
                         break
                     if edge_profile[candidate] >= edge_profile[edge_pos] * 0.6:  # Slightly relaxed
-                        test_var_left = gray[:, max(0, candidate-8):candidate+1].var()
-                        test_var_right = gray[:, candidate+1:min(width, candidate+25)].var()
+                        test_var_left = gray[:, max(0, candidate - 8) : candidate + 1].var()
+                        test_var_right = gray[:, candidate + 1 : min(width, candidate + 25)].var()
                         if test_var_right > test_var_left * 2.0:  # Slightly relaxed
                             return candidate
 
@@ -283,8 +297,14 @@ def _refine_to_inner_edge(
             if edge_pos < 20 or edge_pos >= width - 5:
                 return edge_pos
 
-            var_left = gray[:, max(0, edge_pos-25):edge_pos+1].var() if edge_pos >= 25 else 0.1
-            var_right = gray[:, edge_pos+1:min(width, edge_pos+9)].var() if edge_pos + 9 < width else 0.1
+            var_left = (
+                gray[:, max(0, edge_pos - 25) : edge_pos + 1].var() if edge_pos >= 25 else 0.1
+            )
+            var_right = (
+                gray[:, edge_pos + 1 : min(width, edge_pos + 9)].var()
+                if edge_pos + 9 < width
+                else 0.1
+            )
 
             # Slightly relaxed for right edge
             if var_left < var_right * 0.75:  # Less conservative
@@ -293,8 +313,8 @@ def _refine_to_inner_edge(
                     if candidate < 0 or candidate >= len(edge_profile):
                         break
                     if edge_profile[candidate] >= edge_profile[edge_pos] * 0.6:  # Relaxed
-                        test_var_left = gray[:, max(0, candidate-25):candidate+1].var()
-                        test_var_right = gray[:, candidate+1:min(width, candidate+9)].var()
+                        test_var_left = gray[:, max(0, candidate - 25) : candidate + 1].var()
+                        test_var_right = gray[:, candidate + 1 : min(width, candidate + 9)].var()
                         if test_var_left > test_var_right * 2.0:  # Relaxed
                             return candidate
 
@@ -311,14 +331,20 @@ def detect_main_image(pil_image: Image.Image) -> tuple[int, int, int, int]:
     if max(height, width) > MAX_DIM:
         # Downscale for speed; scale back later.
         scale = MAX_DIM / max(height, width)
-        arr = cv2.resize(arr, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+        arr = cv2.resize(
+            arr, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA
+        )
 
     # Edge contrast per row/col highlights border-to-image transitions.
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
     gray = cv2.GaussianBlur(gray, BLUR_KERNEL, 0)
 
-    row_diff = np.mean(np.abs(gray[1:, :].astype(np.float32) - gray[:-1, :].astype(np.float32)), axis=1)
-    col_diff = np.mean(np.abs(gray[:, 1:].astype(np.float32) - gray[:, :-1].astype(np.float32)), axis=0)
+    row_diff = np.mean(
+        np.abs(gray[1:, :].astype(np.float32) - gray[:-1, :].astype(np.float32)), axis=1
+    )
+    col_diff = np.mean(
+        np.abs(gray[:, 1:].astype(np.float32) - gray[:, :-1].astype(np.float32)), axis=0
+    )
 
     row_diff = _smooth_1d(row_diff, SMOOTH_KERNEL)
     col_diff = _smooth_1d(col_diff, SMOOTH_KERNEL)
@@ -362,7 +388,10 @@ def detect_main_image(pil_image: Image.Image) -> tuple[int, int, int, int]:
     row_var = _smooth_1d(gray.var(axis=1), SMOOTH_KERNEL)
     bottom_border_var = float(np.median(row_var[-border_rows:]))
     bottom_interior_var = float(np.median(row_var[interior_rows[0] : interior_rows[1]]))
-    if bottom_border_med > bottom_interior_med and bottom_border_var < bottom_interior_var * BOTTOM_VAR_RATIO_THRESHOLD:
+    if (
+        bottom_border_med > bottom_interior_med
+        and bottom_border_var < bottom_interior_var * BOTTOM_VAR_RATIO_THRESHOLD
+    ):
         var_thr = _threshold(bottom_border_var, bottom_interior_var)
         for i in range(diff_height - 2, bottom_min - 1, -1):
             if row_var[i] >= var_thr:
@@ -379,7 +408,7 @@ def detect_main_image(pil_image: Image.Image) -> tuple[int, int, int, int]:
         if len(segments) > 1:
             best_idx = None
             best_score = None
-            for start, end in segments:
+            for _start, end in segments:
                 cand_y0 = end + 1
                 cand_area = ((x1 - x0 + 1) * (y1 - cand_y0 + 1)) / float(diff_width * diff_height)
                 if cand_area <= area_ratio:

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
-
 
 DEFAULT_TOP_K = 3
 DEFAULT_INCLUDE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"]
@@ -64,12 +63,14 @@ def load_config(data_dir: str | None = None) -> AppConfig:
 
     # Load config file if it exists
     if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             raw = json.load(f)
 
         image_library_dirs = raw.get("image_library_dirs") or raw.get("image_library_paths") or []
         top_k_default = int(raw.get("top_k_default", DEFAULT_TOP_K))
-        include_extensions = _normalize_extensions(raw.get("include_extensions", DEFAULT_INCLUDE_EXTENSIONS))
+        include_extensions = _normalize_extensions(
+            raw.get("include_extensions", DEFAULT_INCLUDE_EXTENSIONS)
+        )
         build_workers = int(raw.get("build_workers", DEFAULT_BUILD_WORKERS))
 
         # debug_dir can be overridden in config, otherwise defaults to data_dir/debug

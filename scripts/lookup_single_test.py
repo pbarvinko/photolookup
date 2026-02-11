@@ -18,7 +18,9 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".heic"}
 
 
 def _iter_images(directory: Path) -> list[Path]:
-    return sorted([p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES])
+    return sorted(
+        [p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES]
+    )
 
 
 def _load_upright(path: Path) -> Image.Image:
@@ -105,10 +107,7 @@ def main() -> int:
         _save_hash_cache(
             cache_path,
             expected_meta,
-            {
-                stem: {"filename": p.name, "hash": h}
-                for stem, (p, h) in originals.items()
-            },
+            {stem: {"filename": p.name, "hash": h} for stem, (p, h) in originals.items()},
         )
     else:
         originals = {
@@ -141,11 +140,9 @@ def main() -> int:
         top_matches = scored[: args.top]
 
         print(f"{path.name} (expected: {expected_stem or 'NONE'})")
-        for rank, (dist, stem, orig_path) in enumerate(top_matches, start=1):
+        for rank, (dist, _stem, orig_path) in enumerate(top_matches, start=1):
             confidence = 1.0 - dist
-            print(
-                f"  {rank}) {orig_path.name} dist={dist:.6f} confidence={confidence:.6f}"
-            )
+            print(f"  {rank}) {orig_path.name} dist={dist:.6f} confidence={confidence:.6f}")
 
         if expected_stem is not None:
             ok = top_matches and top_matches[0][1] == expected_stem
