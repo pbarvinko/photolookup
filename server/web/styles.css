@@ -235,16 +235,10 @@ h1 {
 }
 
 .version-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  margin-top: 24px;
   text-align: center;
-  padding: 12px;
   font-size: 12px;
   color: var(--muted);
-  background: transparent;
-  pointer-events: none;
 }
 
 @media (max-width: 600px) {

@@ -1,3 +1,14 @@
+/**
+ * Main application entry point
+ */
+
+import { fetchBBox, lookupImage, saveDebug, fetchVersion } from './api.js';
+import { render } from './canvas-renderer.js';
+import { setupBBoxEditor, sanitizeBBox, handleMetrics } from './bbox-editor.js';
+import { createSlider } from './slider.js';
+import { loadImageWithOrientation } from './utils.js';
+
+// DOM element references
 const fileInput = document.getElementById('fileInput');
 const browseBtn = document.getElementById('browseBtn');
 const preview = document.getElementById('preview');
@@ -7,30 +18,45 @@ const ctx = previewCanvas.getContext('2d');
 const lookupBtn = document.getElementById('lookupBtn');
 const debugBtn = document.getElementById('debugBtn');
 const results = document.getElementById('results');
-const slider = document.querySelector('.slider');
-const sliderTrack = document.getElementById('sliderTrack');
-const slideStatus = document.getElementById('slideStatus');
-const sliderPrev = document.getElementById('sliderPrev');
-const sliderNext = document.getElementById('sliderNext');
 const versionText = document.getElementById('versionText');
 
+// Application state
 let currentImage = null;
 let currentBBox = null;
 let detectedBBox = null;
-let activeHandle = null;
-let isDragging = false;
-let lastPointer = null;
-let grabOffset = null;
 let selectedFile = null;
-let matches = [];
-let activeIndex = 0;
-let swipeStart = null;
 
+// Initialize slider
+const matchSlider = createSlider({
+  resultsContainer: results,
+  slider: document.querySelector('.slider'),
+  sliderTrack: document.getElementById('sliderTrack'),
+  slideStatus: document.getElementById('slideStatus'),
+  sliderPrev: document.getElementById('sliderPrev'),
+  sliderNext: document.getElementById('sliderNext'),
+  previewCanvas,
+});
+
+// Render function wrapper
+function renderCanvas() {
+  const metrics = handleMetrics(previewCanvas);
+  render(ctx, previewCanvas, currentImage, currentBBox, metrics);
+}
+
+// Initialize bbox editor
+const cleanupBBoxEditor = setupBBoxEditor(previewCanvas, {
+  getBBox: () => currentBBox,
+  setBBox: (bbox) => { currentBBox = bbox; },
+  onBBoxChange: renderCanvas,
+});
+
+// Browse button handler
 browseBtn.addEventListener('click', () => {
   fileInput.click();
 });
 
-fileInput.addEventListener('change', () => {
+// File input change handler
+fileInput.addEventListener('change', async () => {
   const file = fileInput.files && fileInput.files[0];
   if (!file) {
     preview.hidden = true;
@@ -39,24 +65,22 @@ fileInput.addEventListener('change', () => {
     debugBtn.hidden = true;
     return;
   }
+
   selectedFile = file;
   lookupBtn.disabled = false;
   debugBtn.hidden = false;
   results.hidden = true;
-  sliderTrack.innerHTML = '';
-  matches = [];
-  activeIndex = 0;
-  updateSlider();
+  matchSlider.reset();
   detectedBBox = null;
 
   const objectUrl = URL.createObjectURL(file);
-  (async () => {
+  try {
     const imageData = await loadImageWithOrientation(file, objectUrl);
     currentImage = imageData.bitmap;
     previewCanvas.width = imageData.width;
     previewCanvas.height = imageData.height;
     currentBBox = null;
-    render();
+    renderCanvas();
 
     fileMeta.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
     preview.hidden = false;
@@ -64,18 +88,35 @@ fileInput.addEventListener('change', () => {
     try {
       const bbox = await fetchBBox(file);
       if (bbox) {
-        detectedBBox = sanitizeBBox(bbox);
+        detectedBBox = sanitizeBBox(bbox, previewCanvas.width, previewCanvas.height);
         currentBBox = detectedBBox.slice();
-        render();
+        renderCanvas();
       }
     } catch (err) {
       console.error('BBox request failed', err);
     }
-
+  } finally {
     URL.revokeObjectURL(objectUrl);
-  })();
+  }
 });
 
+// Lookup button handler
+lookupBtn.addEventListener('click', async () => {
+  if (!selectedFile) {
+    return;
+  }
+  lookupBtn.disabled = true;
+  try {
+    const data = await lookupImage(selectedFile, currentBBox);
+    matchSlider.renderMatches(data.matches || []);
+  } catch (err) {
+    console.error('Lookup failed', err);
+  } finally {
+    lookupBtn.disabled = false;
+  }
+});
+
+// Debug button handler
 debugBtn.addEventListener('click', async () => {
   if (!selectedFile) {
     return;
@@ -90,520 +131,10 @@ debugBtn.addEventListener('click', async () => {
   }
 });
 
-lookupBtn.addEventListener('click', async () => {
-  if (!selectedFile) {
-    return;
+// Fetch and display version
+(async () => {
+  const version = await fetchVersion();
+  if (version) {
+    versionText.textContent = `PhotoLookup v${version}`;
   }
-  lookupBtn.disabled = true;
-  try {
-    const data = await lookupImage(selectedFile, currentBBox);
-    matches = data.matches || [];
-    activeIndex = 0;
-    renderMatches();
-  } catch (err) {
-    console.error('Lookup failed', err);
-  } finally {
-    lookupBtn.disabled = false;
-  }
-});
-
-async function fetchBBox(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch('/api/bbox', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-  const data = await response.json();
-  return data.bbox;
-}
-
-function drawBBox(bbox) {
-  const [x0, y0, x1, y1] = bbox;
-  const width = x1 - x0 + 1;
-  const height = y1 - y0 + 1;
-
-  ctx.lineJoin = 'round';
-
-  const base = Math.min(previewCanvas.width, previewCanvas.height);
-  const outer = Math.max(10, base * 0.01);
-  const inner = Math.max(4, base * 0.005);
-
-  // Outer stroke for contrast
-  ctx.strokeStyle = 'white';
-  ctx.lineWidth = outer;
-  ctx.strokeRect(x0, y0, width, height);
-
-  // Inner stroke for visibility on light areas
-  ctx.strokeStyle = 'black';
-  ctx.lineWidth = inner;
-  ctx.strokeRect(x0, y0, width, height);
-
-  drawHandles(x0, y0, x1, y1);
-}
-
-async function lookupImage(file, bbox) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const url = new URL('/api/lookup', window.location.origin);
-  if (bbox) {
-    const ints = bbox.map((value) => Math.round(value));
-    url.searchParams.set('bbox', ints.join(','));
-  }
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    body: formData,
-  });
-  if (!response.ok) {
-    throw new Error(`Lookup failed: ${response.status}`);
-  }
-  return response.json();
-}
-
-async function saveDebug(file, detected, bbox) {
-  const formData = new FormData();
-  formData.append('file', file);
-  if (detected) {
-    const ints = detected.map((value) => Math.round(value));
-    formData.append('detected_bbox', ints.join(','));
-  }
-  if (bbox) {
-    const ints = bbox.map((value) => Math.round(value));
-    formData.append('bbox', ints.join(','));
-  }
-  const response = await fetch('/api/debug', {
-    method: 'POST',
-    body: formData,
-  });
-  if (!response.ok) {
-    throw new Error(`Debug save failed: ${response.status}`);
-  }
-  return response.json();
-}
-
-function renderMatches() {
-  if (!matches.length) {
-    results.hidden = true;
-    return;
-  }
-  sliderTrack.innerHTML = '';
-  matches.forEach((match) => {
-    const slide = document.createElement('div');
-    slide.className = 'slide';
-
-    const img = document.createElement('img');
-    img.src = `/api/image?id=${encodeURIComponent(match.id)}`;
-    img.alt = 'Matched image';
-
-    const info = document.createElement('div');
-    info.className = 'slide-info';
-    const confidence = (1 - match.distance).toFixed(3);
-    info.textContent = `confidence: ${confidence} · ${match.path}`;
-
-    slide.appendChild(img);
-    slide.appendChild(info);
-    sliderTrack.appendChild(slide);
-  });
-
-  results.hidden = false;
-  syncSliderSize();
-  updateSlider();
-}
-
-function syncSliderSize() {
-  const rect = previewCanvas.getBoundingClientRect();
-  if (slider) {
-    slider.style.width = `${rect.width}px`;
-  }
-  sliderTrack.querySelectorAll('.slide img').forEach((img) => {
-    img.style.height = `${rect.height}px`;
-  });
-}
-
-const sliderResizeObserver = new ResizeObserver(() => {
-  if (!results.hidden) {
-    syncSliderSize();
-  }
-});
-sliderResizeObserver.observe(previewCanvas);
-
-function updateSlider() {
-  const count = matches.length;
-  if (!count) {
-    slideStatus.textContent = '';
-    sliderPrev.hidden = true;
-    sliderNext.hidden = true;
-    return;
-  }
-  const clamped = Math.max(0, Math.min(activeIndex, count - 1));
-  activeIndex = clamped;
-  sliderTrack.style.transform = `translateX(-${activeIndex * 100}%)`;
-  slideStatus.textContent = `${activeIndex + 1} / ${count}`;
-  sliderPrev.hidden = activeIndex === 0;
-  sliderNext.hidden = activeIndex >= count - 1;
-}
-
-function clampActiveIndex() {
-  const count = matches.length;
-  activeIndex = Math.max(0, Math.min(activeIndex, count - 1));
-}
-
-function onSliderPointerDown(event) {
-  if (event.target.closest('.slider-btn')) return;
-  const count = matches.length;
-  if (!count || count === 1 || !slider) return;
-  swipeStart = {
-    id: event.pointerId,
-    x: event.clientX,
-    y: event.clientY,
-  };
-  slider.setPointerCapture(event.pointerId);
-}
-
-function onSliderPointerUp(event) {
-  if (!swipeStart || event.pointerId !== swipeStart.id) return;
-  const deltaX = event.clientX - swipeStart.x;
-  const deltaY = event.clientY - swipeStart.y;
-  swipeStart = null;
-  slider.releasePointerCapture(event.pointerId);
-  if (Math.abs(deltaX) < 40 || Math.abs(deltaX) < Math.abs(deltaY)) {
-    return;
-  }
-  if (deltaX < 0) {
-    activeIndex += 1;
-  } else {
-    activeIndex -= 1;
-  }
-  clampActiveIndex();
-  updateSlider();
-}
-
-if (slider) {
-  slider.addEventListener('pointerdown', onSliderPointerDown);
-  slider.addEventListener('pointerup', onSliderPointerUp);
-  slider.addEventListener('pointercancel', onSliderPointerUp);
-}
-
-sliderPrev.addEventListener('click', () => {
-  activeIndex -= 1;
-  clampActiveIndex();
-  updateSlider();
-});
-
-sliderNext.addEventListener('click', () => {
-  activeIndex += 1;
-  clampActiveIndex();
-  updateSlider();
-});
-
-function drawHandles(x0, y0, x1, y1) {
-  const { length, thickness } = handleMetrics();
-  const corners = [
-    { id: 'nw', x: x0, y: y0 },
-    { id: 'ne', x: x1, y: y0 },
-    { id: 'se', x: x1, y: y1 },
-    { id: 'sw', x: x0, y: y1 },
-  ];
-
-  ctx.lineCap = 'round';
-  ctx.lineWidth = thickness;
-  ctx.strokeStyle = 'white';
-  corners.forEach((corner) => drawCornerLines(corner, length));
-  ctx.lineWidth = Math.max(1, thickness * 0.55);
-  ctx.strokeStyle = 'black';
-  corners.forEach((corner) => drawCornerLines(corner, length));
-}
-
-const FILM_RATIO = 3 / 2; // 35mm: 36×24mm
-
-function compute35mmFrame(bbox) {
-  const [x0, y0, x1, y1] = bbox;
-  const bw = x1 - x0;
-  const bh = y1 - y0;
-  if (bw <= 0 || bh <= 0) return null;
-  const targetRatio = bw >= bh ? FILM_RATIO : 1 / FILM_RATIO;
-  let fw, fh;
-  if (bw / bh > targetRatio) {
-    fh = bh;
-    fw = bh * targetRatio;
-  } else {
-    fw = bw;
-    fh = bw / targetRatio;
-  }
-  const cx = x0 + bw / 2;
-  const cy = y0 + bh / 2;
-  return [cx - fw / 2, cy - fh / 2, cx + fw / 2, cy + fh / 2];
-}
-
-function draw35mmGuide(frame) {
-  const [fx0, fy0, fx1, fy1] = frame;
-  const fw = fx1 - fx0;
-  const fh = fy1 - fy0;
-  const base = Math.min(previewCanvas.width, previewCanvas.height);
-  const outer = Math.max(4, base * 0.007);
-  const inner = Math.max(2, base * 0.004);
-  const dashLen = Math.max(8, base * 0.018);
-
-  ctx.save();
-  ctx.lineJoin = 'round';
-  ctx.setLineDash([dashLen, dashLen]);
-
-  ctx.lineWidth = outer;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-  ctx.strokeRect(fx0, fy0, fw, fh);
-
-  ctx.lineWidth = inner;
-  ctx.strokeStyle = 'rgba(255, 180, 0, 1)';
-  ctx.strokeRect(fx0, fy0, fw, fh);
-
-  ctx.setLineDash([]);
-
-  const fontSize = Math.max(13, base * 0.028);
-  ctx.font = `bold ${fontSize}px sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  const tx = fx0 + outer + 3;
-  const ty = fy0 + outer + 3;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.lineWidth = 3;
-  ctx.strokeText('35mm', tx, ty);
-  ctx.fillStyle = 'rgba(255, 180, 0, 1)';
-  ctx.fillText('35mm', tx, ty);
-
-  ctx.restore();
-}
-
-function render() {
-  if (!currentImage) {
-    return;
-  }
-  ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-  ctx.drawImage(currentImage, 0, 0);
-  if (currentBBox) {
-    const frame = compute35mmFrame(currentBBox);
-    if (frame) draw35mmGuide(frame);
-    drawBBox(currentBBox);
-  }
-}
-
-function sanitizeBBox(bbox) {
-  let [x0, y0, x1, y1] = bbox;
-  x0 = Math.max(0, Math.min(x0, previewCanvas.width - 1));
-  x1 = Math.max(0, Math.min(x1, previewCanvas.width - 1));
-  y0 = Math.max(0, Math.min(y0, previewCanvas.height - 1));
-  y1 = Math.max(0, Math.min(y1, previewCanvas.height - 1));
-  if (x1 < x0) [x0, x1] = [x1, x0];
-  if (y1 < y0) [y0, y1] = [y1, y0];
-  return [x0, y0, x1, y1];
-}
-
-function canvasScale() {
-  const rect = previewCanvas.getBoundingClientRect();
-  return {
-    scaleX: previewCanvas.width / rect.width,
-    scaleY: previewCanvas.height / rect.height,
-    rect,
-  };
-}
-
-function hitHandle(x, y) {
-  if (!currentBBox) return null;
-  const [x0, y0, x1, y1] = currentBBox;
-  const { length, padding } = handleMetrics();
-  const handles = [
-    { id: 'nw', x: x0, y: y0 },
-    { id: 'ne', x: x1, y: y0 },
-    { id: 'se', x: x1, y: y1 },
-    { id: 'sw', x: x0, y: y1 },
-  ];
-  for (const h of handles) {
-    const xMin = h.x - padding;
-    const xMax = h.x + length + padding;
-    const yMin = h.y - padding;
-    const yMax = h.y + length + padding;
-    if (x >= xMin && x <= xMax && y >= yMin && y <= yMax) {
-      return h.id;
-    }
-  }
-  return null;
-}
-
-function updateBBoxFromHandle(handle, x, y) {
-  if (!currentBBox) return;
-  let [x0, y0, x1, y1] = currentBBox;
-  const offset = grabOffset || { x: 0, y: 0 };
-  const adjX = x - offset.x;
-  const adjY = y - offset.y;
-  if (handle === 'nw') {
-    x0 = adjX;
-    y0 = adjY;
-  } else if (handle === 'ne') {
-    x1 = adjX;
-    y0 = adjY;
-  } else if (handle === 'se') {
-    x1 = adjX;
-    y1 = adjY;
-  } else if (handle === 'sw') {
-    x0 = adjX;
-    y1 = adjY;
-  }
-  currentBBox = sanitizeBBox([x0, y0, x1, y1]);
-  render();
-}
-
-function onPointerDown(event) {
-  if (!currentBBox) return;
-  const { scaleX, scaleY, rect } = canvasScale();
-  const x = (event.clientX - rect.left) * scaleX;
-  const y = (event.clientY - rect.top) * scaleY;
-  const handle = hitHandle(x, y);
-  if (!handle) {
-    const [bx0, by0, bx1, by1] = currentBBox;
-    if (x >= bx0 && x <= bx1 && y >= by0 && y <= by1) {
-      activeHandle = 'pan';
-      isDragging = true;
-      lastPointer = { x, y };
-      previewCanvas.setPointerCapture(event.pointerId);
-    }
-    return;
-  }
-  activeHandle = handle;
-  isDragging = true;
-  lastPointer = { x, y };
-  const [x0, y0, x1, y1] = currentBBox;
-  let cornerX = x0;
-  let cornerY = y0;
-  if (handle === 'ne') {
-    cornerX = x1;
-    cornerY = y0;
-  } else if (handle === 'se') {
-    cornerX = x1;
-    cornerY = y1;
-  } else if (handle === 'sw') {
-    cornerX = x0;
-    cornerY = y1;
-  }
-  grabOffset = { x: x - cornerX, y: y - cornerY };
-  previewCanvas.setPointerCapture(event.pointerId);
-}
-
-function onPointerMove(event) {
-  if (!isDragging || !activeHandle) return;
-  const { scaleX, scaleY, rect } = canvasScale();
-  const x = (event.clientX - rect.left) * scaleX;
-  const y = (event.clientY - rect.top) * scaleY;
-  if (activeHandle === 'pan') {
-    const dx = x - lastPointer.x;
-    const dy = y - lastPointer.y;
-    lastPointer = { x, y };
-    let [x0, y0, x1, y1] = currentBBox;
-    const w = x1 - x0;
-    const h = y1 - y0;
-    x0 += dx;
-    y0 += dy;
-    x0 = Math.max(0, Math.min(x0, previewCanvas.width - 1 - w));
-    y0 = Math.max(0, Math.min(y0, previewCanvas.height - 1 - h));
-    currentBBox = [x0, y0, x0 + w, y0 + h];
-    render();
-    return;
-  }
-  lastPointer = { x, y };
-  updateBBoxFromHandle(activeHandle, x, y);
-}
-
-function onPointerUp(event) {
-  if (!isDragging) return;
-  isDragging = false;
-  activeHandle = null;
-  lastPointer = null;
-  grabOffset = null;
-  previewCanvas.releasePointerCapture(event.pointerId);
-}
-
-previewCanvas.addEventListener('pointerdown', onPointerDown);
-previewCanvas.addEventListener('pointermove', onPointerMove);
-previewCanvas.addEventListener('pointerup', onPointerUp);
-previewCanvas.addEventListener('pointercancel', onPointerUp);
-
-async function loadImageWithOrientation(file, objectUrl) {
-  if (typeof createImageBitmap === 'function') {
-    try {
-      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      return { bitmap, width: bitmap.width, height: bitmap.height };
-    } catch (err) {
-      console.warn('createImageBitmap failed, fallback to Image()', err);
-    }
-  }
-  const img = await new Promise((resolve, reject) => {
-    const fallback = new Image();
-    fallback.onload = () => resolve(fallback);
-    fallback.onerror = reject;
-    fallback.src = objectUrl;
-  });
-  return { bitmap: img, width: img.naturalWidth, height: img.naturalHeight };
-}
-
-function handleMetrics() {
-  const { scaleX, scaleY, rect } = canvasScale();
-  const baseDisplay = Math.min(rect.width, rect.height);
-  const lengthDisplay = Math.max(28, baseDisplay * 0.08);
-  const thicknessDisplay = Math.max(6, baseDisplay * 0.015);
-  const paddingDisplay = Math.max(18, baseDisplay * 0.04);
-  const scale = Math.max(scaleX, scaleY);
-  return {
-    length: lengthDisplay * scale,
-    thickness: thicknessDisplay * scale,
-    padding: paddingDisplay * scale,
-  };
-}
-
-function drawCornerLines(corner, length) {
-  const x = corner.x;
-  const y = corner.y;
-  if (corner.id === 'nw') {
-    ctx.beginPath();
-    ctx.moveTo(x, y + length);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x + length, y);
-    ctx.stroke();
-  } else if (corner.id === 'ne') {
-    ctx.beginPath();
-    ctx.moveTo(x - length, y);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x, y + length);
-    ctx.stroke();
-  } else if (corner.id === 'se') {
-    ctx.beginPath();
-    ctx.moveTo(x, y - length);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x - length, y);
-    ctx.stroke();
-  } else if (corner.id === 'sw') {
-    ctx.beginPath();
-    ctx.moveTo(x + length, y);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x, y - length);
-    ctx.stroke();
-  }
-}
-
-async function fetchVersion() {
-  try {
-    const response = await fetch('/api/config');
-    if (response.ok) {
-      const data = await response.json();
-      if (data.version) {
-        versionText.textContent = `PhotoLookup v${data.version}`;
-      }
-    }
-  } catch (err) {
-    console.warn('Failed to fetch version', err);
-  }
-}
-
-fetchVersion();
+})();
