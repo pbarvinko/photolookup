@@ -5,6 +5,7 @@ import logging
 import os
 import random
 import string
+from functools import lru_cache
 from io import BytesIO
 from typing import Any
 
@@ -46,6 +47,50 @@ def _read_version() -> str:
 
 
 _VERSION = _read_version()
+
+# Browser-native image format support
+# Formats in this set will be served as-is; others will be converted to JPEG
+BROWSER_SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
+
+
+@lru_cache(maxsize=100)
+def _convert_to_jpeg(image_id: str, image_data: bytes) -> bytes:
+    """
+    Convert image to JPEG format with caching.
+
+    Args:
+        image_id: Unique image identifier (used as cache key)
+        image_data: Raw image bytes
+
+    Returns:
+        JPEG-encoded image bytes
+    """
+    try:
+        # Load image and apply EXIF orientation
+        image = Image.open(BytesIO(image_data))
+        image = ImageOps.exif_transpose(image)
+
+        # Convert to RGB (JPEG doesn't support transparency)
+        if image.mode in ("RGBA", "LA", "P"):
+            # Create white background
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            if image.mode == "P":
+                image = image.convert("RGBA")
+            background.paste(
+                image, mask=image.split()[-1] if image.mode in ("RGBA", "LA") else None
+            )
+            image = background
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+
+        # Convert to JPEG
+        output = BytesIO()
+        image.save(output, format="JPEG", quality=90, optimize=True)
+        return output.getvalue()
+
+    except Exception as exc:
+        logger.error(f"Failed to convert image {image_id} to JPEG: {exc}")
+        raise
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -235,11 +280,35 @@ async def detect_bbox(file: UploadFile = File(...)) -> BBoxResponse:
 
 @app.get("/api/image")
 def get_image(image_id: str = Query(..., alias="id")) -> Response:
+    """
+    Serve image by ID. Automatically converts non-browser-supported formats (e.g., TIFF)
+    to JPEG with caching for performance.
+    """
+    # Get image blob and info
     blob = _INDEX_STORE.get_image_blob(image_id)
     if blob is None:
         logger.warning(f"Image not found: {image_id}")
         raise HTTPException(status_code=404, detail="Image not found.")
+
     data, media_type = blob
+
+    # Check if browser supports this format natively
+    info = _INDEX_STORE.get_image_info(image_id)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    file_ext = os.path.splitext(info.path)[1].lower()
+
+    # If browser doesn't support this format, convert to JPEG (with caching)
+    if file_ext not in BROWSER_SUPPORTED_EXTENSIONS:
+        logger.debug(f"Converting {file_ext} image {image_id} to JPEG")
+        try:
+            data = _convert_to_jpeg(image_id, data)
+            media_type = "image/jpeg"
+        except Exception as exc:
+            logger.error(f"Image conversion failed for {image_id}: {exc}")
+            raise HTTPException(status_code=500, detail="Image conversion failed.") from exc
+
     return Response(content=data, media_type=media_type)
 
 

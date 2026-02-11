@@ -164,7 +164,12 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 ### Lookup & Detection
 - **`/api/lookup`** - Accepts an image blob (`multipart/form-data` with `file`) and optional `bbox` query param: `x0,y0,x1,y1` (inclusive). If bbox is omitted, full image is used for hashing.
 - **`/api/bbox`** - Accepts an image blob and returns the detected bbox (for manual adjustment in UI).
-- **`/api/image?id=<image_id>`** - Returns the raw image blob by ID (no filesystem paths exposed to clients).
+- **`/api/image?id=<image_id>`** - Returns image by ID with automatic format conversion for browser compatibility:
+  - **Browser-supported formats** (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.svg`, `.bmp`): Served as-is with original MIME type
+  - **Non-browser formats** (e.g., `.tif`, `.tiff`): Automatically converted to JPEG and served as `image/jpeg`
+  - **Conversion pipeline**: EXIF transpose → RGB conversion (alpha composited on white) → JPEG encoding (quality=90)
+  - **Performance**: LRU cache with maxsize=100 (keyed by `image_id`) for fast repeated access
+  - **Transparency**: Conversion is automatic and transparent to client; no frontend changes required
 - **`/api/debug`** - Accepts image + optional `detected_bbox` and `bbox` (form fields), saves JPEG + JSON with matching random id in `debug_dir`.
 
 ### Index Management
