@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import mimetypes
@@ -11,7 +10,6 @@ from datetime import datetime, timezone
 
 from . import hasher
 from .config import AppConfig
-from .image_utils import load_image
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +45,28 @@ class IndexStore:
         for lib_dir in self._config.image_library_dirs:
             logger.info(f"Processing directory: {lib_dir}")
 
+        paths = _iter_image_files(self._config.image_library_dirs, self._config.include_extensions)
+
         # Choose between parallel and sequential based on config
         if self._config.build_workers == 1:
             logger.info("Using sequential processing (build_workers=1)")
-            items, errors = self._build_sequential()
+            from .index_builder import build_index_sequential
+
+            items, errors = build_index_sequential(paths)
         else:
             try:
                 from .index_builder import build_index_parallel
 
-                paths = _iter_image_files(
-                    self._config.image_library_dirs, self._config.include_extensions
-                )
                 items, errors = build_index_parallel(paths, workers=self._config.build_workers)
             except Exception as exc:
                 logger.warning(f"Parallel processing failed ({exc}), falling back to sequential")
-                items, errors = self._build_sequential()
+                from .index_builder import build_index_sequential
+
+                # Re-create paths iterator since it was consumed
+                paths = _iter_image_files(
+                    self._config.image_library_dirs, self._config.include_extensions
+                )
+                items, errors = build_index_sequential(paths)
 
         # Log total
         logger.info(f"Index building complete: {len(items)} files processed, {len(errors)} errors")
@@ -83,35 +88,6 @@ class IndexStore:
         self._items = items
         self._save()
         return self.get_index()
-
-    def _build_sequential(self) -> tuple[dict[str, dict[str, str]], list[str]]:
-        """Sequential implementation of index building (original algorithm)."""
-        items: dict[str, dict[str, str]] = {}
-        errors: list[str] = []
-        processed_count = 0
-
-        for path in _iter_image_files(
-            self._config.image_library_dirs, self._config.include_extensions
-        ):
-            try:
-                image = load_image(path)
-                image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
-                items[image_id] = {
-                    "path": path,
-                    "hash": hasher.hash_image(image),
-                }
-                processed_count += 1
-
-                # Log progress every 100 files
-                if processed_count % 100 == 0:
-                    logger.info(f"Processed {processed_count} files...")
-
-            except Exception as exc:
-                error_msg = f"{path}: {exc}"
-                errors.append(error_msg)
-                logger.error(f"Failed to process image: {error_msg}")
-
-        return items, errors
 
     def update(self) -> IndexData:
         """
@@ -158,7 +134,9 @@ class IndexStore:
             # Step 4: Process new files using parallel or sequential
             if self._config.build_workers == 1:
                 logger.info("Using sequential processing (build_workers=1)")
-                new_items, errors = self._build_sequential_for_paths(new_paths)
+                from .index_builder import build_index_sequential
+
+                new_items, errors = build_index_sequential(iter(new_paths))
             else:
                 try:
                     from .index_builder import build_index_parallel
@@ -170,7 +148,9 @@ class IndexStore:
                     logger.warning(
                         f"Parallel processing failed ({exc}), falling back to sequential"
                     )
-                    new_items, errors = self._build_sequential_for_paths(new_paths)
+                    from .index_builder import build_index_sequential
+
+                    new_items, errors = build_index_sequential(iter(new_paths))
 
             # Step 5: Merge new items into existing index
             self._items.update(new_items)
@@ -202,35 +182,6 @@ class IndexStore:
         self._meta = meta
         self._save()
         return self.get_index()
-
-    def _build_sequential_for_paths(
-        self, paths: list[str]
-    ) -> tuple[dict[str, dict[str, str]], list[str]]:
-        """Sequential processing for a specific list of paths."""
-        items: dict[str, dict[str, str]] = {}
-        errors: list[str] = []
-        processed_count = 0
-
-        for path in paths:
-            try:
-                image = load_image(path)
-                image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
-                items[image_id] = {
-                    "path": path,
-                    "hash": hasher.hash_image(image),
-                }
-                processed_count += 1
-
-                # Log progress every 100 files
-                if processed_count % 100 == 0:
-                    logger.info(f"Processed {processed_count} files...")
-
-            except Exception as exc:
-                error_msg = f"{path}: {exc}"
-                errors.append(error_msg)
-                logger.error(f"Failed to process image: {error_msg}")
-
-        return items, errors
 
     def get_index(self) -> IndexData:
         if not self.is_loaded():

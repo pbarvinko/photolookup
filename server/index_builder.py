@@ -15,6 +15,46 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 20
 
 
+def build_index_sequential(
+    paths: Iterable[str],
+) -> tuple[dict[str, dict[str, str]], list[str]]:
+    """
+    Build image index using sequential processing.
+
+    Args:
+        paths: Iterable of image file paths to process
+
+    Returns:
+        Tuple of (items, errors) where:
+        - items: Dict mapping image_id to {path, hash}
+        - errors: List of error messages
+    """
+    items: dict[str, dict[str, str]] = {}
+    errors: list[str] = []
+    processed_count = 0
+
+    for path in paths:
+        try:
+            image = load_image(path)
+            image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
+            items[image_id] = {
+                "path": path,
+                "hash": hasher.hash_image(image),
+            }
+            processed_count += 1
+
+            # Log progress every 100 files
+            if processed_count % 100 == 0:
+                logger.info(f"Processed {processed_count} files...")
+
+        except Exception as exc:
+            error_msg = f"{path}: {exc}"
+            errors.append(error_msg)
+            logger.error(f"Failed to process image: {error_msg}")
+
+    return items, errors
+
+
 def _process_image_batch(paths: list[str]) -> tuple[list[dict[str, str]], list[str]]:
     """
     Process a batch of image paths in a worker process.
