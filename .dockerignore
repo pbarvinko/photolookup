@@ -1,0 +1,41 @@
+# Config and data directories (user provides via volumes)
+config.*/
+tests/
+scripts/
+
+# Version control
+.git/
+.gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude AI
+.claude/
+
+# Python cache and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Documentation (not needed in runtime)
+AGENTS.md
+README.md
+README.docker.md
+
+# Docker files (don't need these inside the image)
+Dockerfile
+.dockerignore
+docker-compose.yml

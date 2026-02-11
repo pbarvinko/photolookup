@@ -52,6 +52,7 @@
 
 ## Server + API (current)
 - FastAPI app in `server/main.py`. Static web UI served from `server/web/`.
+- Default port: **14322** (configurable via `PORT` env var).
 - API prefix: `/api/*` (e.g., `/api/lookup`, `/api/bbox`, `/api/index`, `/api/index/status`, `/api/image`, `/api/config`, `/api/health`).
 - `/api/lookup` accepts an image blob (`multipart/form-data` with `file`) and optional `bbox` query param: `x0,y0,x1,y1` (inclusive). If bbox is omitted, full image is used for hashing.
 - `/api/bbox` accepts an image blob and returns the detected bbox (for manual adjustment in UI).
@@ -92,6 +93,31 @@
 - UI renders images using EXIF orientation when supported (`createImageBitmap` with `imageOrientation: from-image`).
 - Cache-busting: `?v=devN` query params on CSS/JS links in `index.html`; bump on each change.
 
+## Configuration System
+- **Environment Variable**: `PHOTOLOOKUP_DATA_DIR` (required) - directory containing config and index files
+- **Config file**: Always at `${PHOTOLOOKUP_DATA_DIR}/config.json`
+- **Index file**: Always at `${PHOTOLOOKUP_DATA_DIR}/index.json` (not configurable)
+- **Debug directory**: Defaults to `${PHOTOLOOKUP_DATA_DIR}/debug` (overridable in config.json)
+- **Local dev**: Set `PHOTOLOOKUP_DATA_DIR` in `.vscode/launch.json` (e.g., `${workspaceFolder}/config.local`)
+- **Docker**: Set via environment variable (default: `/data`)
+
+**config.json fields:**
+- `image_library_dirs` - Array of photo directory paths
+- `top_k_default` - Number of matches to return (default: 3)
+- `debug_dir` - Optional override for debug output directory
+- `include_extensions` - File extensions to index (default: `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`, `.webp`)
+- `build_workers` - Parallel index building (0=auto, 1=sequential, N=N workers)
+
+## Docker Deployment
+- **Dockerfile**: Python 3.11-slim base, non-root user (UID 1000), port 14322
+- **docker-compose.yml**: Simplified setup with volume mounts and environment variables
+- **Data volume**: Mount host directory to `/data` in container (contains config.json and index.json)
+- **Photo mounts**: Read-only mounts for photo libraries (e.g., `/mnt/library:ro`)
+- **Build**: `docker build -t photolookup:latest .`
+- **Run**: `docker-compose up -d` or `docker run -d -p 14322:14322 -v ./config.docker:/data photolookup:latest`
+- **Logs**: `docker logs -f photolookup` or `docker-compose logs -f`
+- **Health check**: Built-in, checks `/api/health` every 30s
+
 ## Dev tools
 - `tools/build_index_cli.py` calls `/api/index`.
 - `tools/lookup_image_cli.py` calls `/api/bbox` and `/api/lookup`.
@@ -120,9 +146,26 @@
 - Next step: gather a new representative lookup set (less crop), then re-evaluate thresholds/hasher choice.
 
 ## Dev setup (WSL + mobile access)
-- If phone cannot reach the server via the Windows LAN IP, the likely culprit is **Windows Firewall**. Allow inbound TCP on the server port (e.g., 8000).
+- If phone cannot reach the server via the Windows LAN IP, the likely culprit is **Windows Firewall**. Allow inbound TCP on port 14322.
 - Get WSL IP: `ip addr show eth0` (use the `inet` value).
 - Add Windows port proxy (PowerShell Admin):
-  - `netsh interface portproxy add v4tov4 listenport=8000 listenaddress=0.0.0.0 connectport=8000 connectaddress=<WSL_IP>`
+  ```powershell
+  netsh interface portproxy add v4tov4 listenport=14322 listenaddress=0.0.0.0 connectport=14322 connectaddress=<WSL_IP>
+  ```
+
+  To undo:
+  ```powershell
+  netsh interface portproxy delete v4tov4 listenport=14322 listenaddress=0.0.0.0
+  ```
+
 - Add Windows Firewall rule (PowerShell Admin):
-  - `netsh advfirewall firewall add rule name="PhotoLookup 8000" dir=in action=allow protocol=TCP localport=8000`
+  ```powershell
+  netsh advfirewall firewall add rule name="PhotoLookup 14322" dir=in action=allow protocol=TCP localport=14322
+  ```
+
+  To undo:
+  ```powershell
+  netsh advfirewall firewall delete rule name="PhotoLookup 14322"
+  ```
+
+- Access from mobile: `http://<Windows-IP>:14322/` (find Windows IP with `ipconfig` in Windows)

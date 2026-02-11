@@ -54,8 +54,8 @@ class BBoxResponse(BaseModel):
 
 
 def _load_app_config() -> AppConfig:
-    config_path = os.environ.get("PHOTOLOOKUP_CONFIG")
-    return load_config(config_path)
+    data_dir = os.environ.get("PHOTOLOOKUP_DATA_DIR")
+    return load_config(data_dir)
 
 
 _CONFIG = _load_app_config()

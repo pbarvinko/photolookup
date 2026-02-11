@@ -6,24 +6,19 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 
-DEFAULT_CONFIG_PATH = os.environ.get(
-    "PHOTOLOOKUP_CONFIG",
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "config.json"),
-)
 DEFAULT_TOP_K = 3
-DEFAULT_INDEX_PATH = "config/index.json"
 DEFAULT_INCLUDE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"]
-DEFAULT_DEBUG_DIR = ""
 DEFAULT_BUILD_WORKERS = 0  # 0 = auto (cpu_count - 1), 1 = sequential, N = parallel with N workers
 
 
 @dataclass(frozen=True)
 class AppConfig:
+    data_dir: str
     image_library_dirs: list[str] = field(default_factory=list)
-    index_path: str = DEFAULT_INDEX_PATH
+    index_path: str = ""  # Derived from data_dir, not user-configurable
     top_k_default: int = DEFAULT_TOP_K
     include_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_INCLUDE_EXTENSIONS))
-    debug_dir: str = DEFAULT_DEBUG_DIR
+    debug_dir: str = ""  # Defaults to data_dir/debug, but overridable in config
     build_workers: int = DEFAULT_BUILD_WORKERS
 
 
@@ -39,22 +34,53 @@ def _normalize_extensions(exts: Iterable[str]) -> list[str]:
     return normalized
 
 
-def load_config(path: str | None = None) -> AppConfig:
-    cfg_path = path or DEFAULT_CONFIG_PATH
-    if not os.path.exists(cfg_path):
-        return AppConfig()
+def load_config(data_dir: str | None = None) -> AppConfig:
+    """Load configuration from PHOTOLOOKUP_DATA_DIR.
 
-    with open(cfg_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
+    Args:
+        data_dir: Optional override for data directory. If None, uses PHOTOLOOKUP_DATA_DIR env var.
 
-    image_library_dirs = raw.get("image_library_dirs") or raw.get("image_library_paths") or []
-    index_path = raw.get("index_path", DEFAULT_INDEX_PATH)
-    top_k_default = int(raw.get("top_k_default", DEFAULT_TOP_K))
-    include_extensions = _normalize_extensions(raw.get("include_extensions", DEFAULT_INCLUDE_EXTENSIONS))
-    debug_dir = raw.get("debug_dir", DEFAULT_DEBUG_DIR)
-    build_workers = int(raw.get("build_workers", DEFAULT_BUILD_WORKERS))
+    Returns:
+        AppConfig with paths derived from data_dir.
+
+    Raises:
+        RuntimeError: If PHOTOLOOKUP_DATA_DIR is not set and data_dir is not provided.
+    """
+    if data_dir is None:
+        data_dir = os.environ.get("PHOTOLOOKUP_DATA_DIR")
+        if not data_dir:
+            raise RuntimeError(
+                "PHOTOLOOKUP_DATA_DIR environment variable is required but not set. "
+                "Please set it to the directory containing config.json and index.json."
+            )
+    config_path = os.path.join(data_dir, "config.json")
+
+    # Default values
+    image_library_dirs = []
+    top_k_default = DEFAULT_TOP_K
+    include_extensions = list(DEFAULT_INCLUDE_EXTENSIONS)
+    debug_dir = os.path.join(data_dir, "debug")  # Default to data_dir/debug
+    build_workers = DEFAULT_BUILD_WORKERS
+
+    # Load config file if it exists
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+
+        image_library_dirs = raw.get("image_library_dirs") or raw.get("image_library_paths") or []
+        top_k_default = int(raw.get("top_k_default", DEFAULT_TOP_K))
+        include_extensions = _normalize_extensions(raw.get("include_extensions", DEFAULT_INCLUDE_EXTENSIONS))
+        build_workers = int(raw.get("build_workers", DEFAULT_BUILD_WORKERS))
+
+        # debug_dir can be overridden in config, otherwise defaults to data_dir/debug
+        if "debug_dir" in raw and raw["debug_dir"]:
+            debug_dir = raw["debug_dir"]
+
+    # index_path is always derived from data_dir (not configurable)
+    index_path = os.path.join(data_dir, "index.json")
 
     return AppConfig(
+        data_dir=data_dir,
         image_library_dirs=list(image_library_dirs),
         index_path=index_path,
         top_k_default=top_k_default,

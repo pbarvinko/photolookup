@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  photolookup:
+    build: .
+    image: photolookup:latest
+    container_name: photolookup
+    ports:
+      - "14322:14322"
+    volumes:
+      # Persistent data (config + index)
+      - ./config.docker:/data
+
+      # Photo library mounts (READ-ONLY)
+      - /mnt/c/work/tests/library:/mnt/library:ro
+      # Uncomment and adjust paths as needed:
+      # - /path/to/your/photos:/mnt/images:ro
+      # - /path/to/more/photos:/mnt/multimedia:ro
+      # - /path/to/family/photos:/mnt/family-photos:ro
+
+    environment:
+      # Data directory (required, matches volume mount)
+      - PHOTOLOOKUP_DATA_DIR=/data
+
+      # Optional: override default port
+      # - PORT=14322
+
+      # Optional: set log level (DEBUG, INFO, WARNING, ERROR)
+      # - LOG_LEVEL=INFO
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:14322/api/health')"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3

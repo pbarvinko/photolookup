@@ -28,7 +28,7 @@ tests/debug/*_detected.*
 tests/
 
 # server config, specific to local install
-config/
+config.*/
 
 # Local caches
 *.log
