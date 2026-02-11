@@ -12,10 +12,9 @@ services:
       - ./config.docker:/data
 
       # Photo library mounts (READ-ONLY)
-      - /mnt/c/work/tests/library:/mnt/library:ro
-      # Uncomment and adjust paths as needed:
-      # - /path/to/your/photos:/mnt/images:ro
-      # - /path/to/more/photos:/mnt/multimedia:ro
+      # Uncomment and adjust paths to your photo libraries:
+      # - /path/to/your/photos:/mnt/library:ro
+      # - /path/to/more/photos:/mnt/images:ro
       # - /path/to/family/photos:/mnt/family-photos:ro
 
     environment:
