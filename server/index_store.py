@@ -4,7 +4,7 @@ import json
 import logging
 import mimetypes
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -35,12 +35,15 @@ class IndexStore:
     def is_loaded(self) -> bool:
         return self._items is not None and self._meta is not None
 
-    def build(self) -> IndexData:
-        """Build the image index from scratch, discarding any existing index."""
-        # Clear existing index
-        self._meta = None
-        self._items = None
+    def build(self, progress_callback: Callable[[int], None] | None = None) -> IndexData:
+        """
+        Build the image index from scratch.
 
+        Note: Old index remains available for lookups until new index is complete.
+
+        Args:
+            progress_callback: Optional callback called with progress count
+        """
         # Log each top-level directory
         for lib_dir in self._config.image_library_dirs:
             logger.info(f"Processing directory: {lib_dir}")
@@ -52,12 +55,14 @@ class IndexStore:
             logger.info("Using sequential processing (build_workers=1)")
             from .index_builder import build_index_sequential
 
-            items, errors = build_index_sequential(paths)
+            items, errors = build_index_sequential(paths, progress_callback=progress_callback)
         else:
             try:
                 from .index_builder import build_index_parallel
 
-                items, errors = build_index_parallel(paths, workers=self._config.build_workers)
+                items, errors = build_index_parallel(
+                    paths, workers=self._config.build_workers, progress_callback=progress_callback
+                )
             except Exception as exc:
                 logger.warning(f"Parallel processing failed ({exc}), falling back to sequential")
                 from .index_builder import build_index_sequential
@@ -66,7 +71,7 @@ class IndexStore:
                 paths = _iter_image_files(
                     self._config.image_library_dirs, self._config.include_extensions
                 )
-                items, errors = build_index_sequential(paths)
+                items, errors = build_index_sequential(paths, progress_callback=progress_callback)
 
         # Log total
         logger.info(f"Index building complete: {len(items)} files processed, {len(errors)} errors")
@@ -84,16 +89,21 @@ class IndexStore:
             "errors": errors,
         }
 
+        # Atomically replace old index with new one
+        # (old index remains available for lookups until this point)
         self._meta = meta
         self._items = items
         self._save()
         return self.get_index()
 
-    def update(self) -> IndexData:
+    def update(self, progress_callback: Callable[[int], None] | None = None) -> IndexData:
         """
         Incrementally update the index:
         - Remove entries for files that no longer exist
         - Add entries for new files not in the index
+
+        Args:
+            progress_callback: Optional callback called with progress count
         """
         # Ensure index is loaded
         self.init()
@@ -101,7 +111,7 @@ class IndexStore:
         # If no index exists, build from scratch
         if not self.is_loaded():
             logger.info("No existing index found, building from scratch")
-            return self.build()
+            return self.build(progress_callback=progress_callback)
 
         logger.info(f"Validating existing entries: {len(self._items)} images")
 
@@ -136,13 +146,17 @@ class IndexStore:
                 logger.info("Using sequential processing (build_workers=1)")
                 from .index_builder import build_index_sequential
 
-                new_items, errors = build_index_sequential(iter(new_paths))
+                new_items, errors = build_index_sequential(
+                    iter(new_paths), progress_callback=progress_callback
+                )
             else:
                 try:
                     from .index_builder import build_index_parallel
 
                     new_items, errors = build_index_parallel(
-                        iter(new_paths), workers=self._config.build_workers
+                        iter(new_paths),
+                        workers=self._config.build_workers,
+                        progress_callback=progress_callback,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -150,7 +164,9 @@ class IndexStore:
                     )
                     from .index_builder import build_index_sequential
 
-                    new_items, errors = build_index_sequential(iter(new_paths))
+                    new_items, errors = build_index_sequential(
+                        iter(new_paths), progress_callback=progress_callback
+                    )
 
             # Step 5: Merge new items into existing index
             self._items.update(new_items)

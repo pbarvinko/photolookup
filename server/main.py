@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from . import hasher
 from .config import AppConfig, load_config
 from .image_detection_engine import detect_main_image
+from .index_builder_coordinator import IndexBuilderCoordinator
 from .index_store import IndexStore
 
 # Configure logging
@@ -74,6 +75,7 @@ def _load_app_config() -> AppConfig:
 
 _CONFIG = _load_app_config()
 _INDEX_STORE = IndexStore(_CONFIG)
+_INDEX_COORDINATOR = IndexBuilderCoordinator(_INDEX_STORE)
 
 
 @app.on_event("startup")
@@ -84,6 +86,16 @@ def _load_index_on_startup() -> None:
         logger.info(f"Index loaded successfully: {_INDEX_STORE.get_count()} images")
     else:
         logger.warning("No index found. Build index to enable lookups.")
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    logger.info("Shutting down server...")
+    # Wait for build to complete with 30 second timeout
+    if _INDEX_COORDINATOR.wait_for_completion(timeout=30):
+        logger.info("Build completed before shutdown")
+    else:
+        logger.warning("Build did not complete within timeout, shutting down anyway")
 
 
 def _open_uploaded_image(file: UploadFile) -> Image.Image:
@@ -125,38 +137,64 @@ def health() -> dict[str, str]:
 
 @app.get("/api/index/status")
 def index_status() -> dict[str, Any]:
+    """Get index status and current build progress if any."""
+    # Get build status
+    build_progress = _INDEX_COORDINATOR.get_status()
+    build_status = None
+    if build_progress:
+        build_status = {
+            "operation": build_progress.operation,
+            "status": build_progress.status.value,
+            "progress": build_progress.progress,
+            "total": build_progress.total,
+            "started_at": build_progress.started_at,
+            "completed_at": build_progress.completed_at,
+            "error": build_progress.error,
+        }
+
+    # Get index status
     if not _INDEX_STORE.is_loaded():
-        return {"exists": False, "index_path": _CONFIG.index_path}
+        return {
+            "exists": False,
+            "index_path": _CONFIG.index_path,
+            "build_status": build_status,
+        }
+
     data = _INDEX_STORE.get_index()
     return {
         "exists": True,
         "index_path": _CONFIG.index_path,
         "count": _INDEX_STORE.get_count(),
         "meta": data.meta,
+        "build_status": build_status,
     }
 
 
-@app.post("/api/index")
+@app.post("/api/index", status_code=202)
 def build_index_endpoint(rebuild: bool = Query(False)) -> dict[str, Any]:
     """
-    Build or update the image index.
+    Start an async build or update of the image index.
 
     Query params:
         rebuild: If True, rebuild from scratch. If False (default), incrementally update.
+
+    Returns:
+        202 Accepted with build task status
+
+    Raises:
+        409 Conflict if a build is already in progress
     """
-    if rebuild:
-        logger.info("Rebuilding index from scratch...")
-        data = _INDEX_STORE.build()
-        logger.info(f"Index rebuilt successfully: {_INDEX_STORE.get_count()} images")
-    else:
-        logger.info("Updating index...")
-        data = _INDEX_STORE.update()
-        logger.info(f"Index updated successfully: {_INDEX_STORE.get_count()} images")
+    try:
+        progress = _INDEX_COORDINATOR.start_build(rebuild)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {
-        "index_path": _CONFIG.index_path,
-        "count": _INDEX_STORE.get_count(),
-        "meta": data.meta,
+        "operation": progress.operation,
+        "status": progress.status.value,
+        "progress": progress.progress,
+        "total": progress.total,
+        "started_at": progress.started_at,
     }
 
 

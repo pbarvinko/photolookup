@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from . import hasher
@@ -17,12 +17,14 @@ BATCH_SIZE = 20
 
 def build_index_sequential(
     paths: Iterable[str],
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[dict[str, dict[str, str]], list[str]]:
     """
     Build image index using sequential processing.
 
     Args:
         paths: Iterable of image file paths to process
+        progress_callback: Optional callback called with progress count
 
     Returns:
         Tuple of (items, errors) where:
@@ -46,11 +48,17 @@ def build_index_sequential(
             # Log progress every 100 files
             if processed_count % 100 == 0:
                 logger.info(f"Processed {processed_count} files...")
+                if progress_callback:
+                    progress_callback(processed_count)
 
         except Exception as exc:
             error_msg = f"{path}: {exc}"
             errors.append(error_msg)
             logger.error(f"Failed to process image: {error_msg}")
+
+    # Final progress update
+    if progress_callback:
+        progress_callback(processed_count)
 
     return items, errors
 
@@ -116,6 +124,7 @@ def build_index_parallel(
     paths: Iterable[str],
     workers: int = 0,
     batch_size: int = BATCH_SIZE,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> tuple[dict[str, dict[str, str]], list[str]]:
     """
     Build image index using parallel processing.
@@ -124,6 +133,7 @@ def build_index_parallel(
         paths: Iterable of image file paths to process
         workers: Number of worker processes (0 = auto detect)
         batch_size: Number of files per batch
+        progress_callback: Optional callback called with progress count
 
     Returns:
         Tuple of (items, errors) where:
@@ -174,6 +184,8 @@ def build_index_parallel(
                 if processed_count // 100 > last_logged:
                     logger.info(f"Processed {processed_count} files...")
                     last_logged = processed_count // 100
+                    if progress_callback:
+                        progress_callback(processed_count)
 
             except TimeoutError:
                 logger.error("Batch processing timed out")
@@ -181,5 +193,9 @@ def build_index_parallel(
             except Exception as exc:
                 logger.error(f"Worker process error: {exc}")
                 all_errors.append(f"Worker error: {exc}")
+
+    # Final progress update
+    if progress_callback:
+        progress_callback(processed_count)
 
     return items, all_errors

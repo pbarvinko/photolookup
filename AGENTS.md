@@ -169,9 +169,26 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 
 ### Index Management
 - **`/api/index`** POST with optional `?rebuild=true` query parameter:
+  - **Async operation**: Returns immediately (202 Accepted) with task status, build runs in background thread
   - **Default (no parameter or `?rebuild=false`)**: Incrementally updates index - removes entries for deleted files, adds new files
   - **`?rebuild=true`**: Rebuilds entire index from scratch
-- **`/api/index/status`** - Returns index metadata and status
+  - **Returns**: `{"operation": "build"|"update", "status": "running", "progress": 0, "total": null, "started_at": "..."}`
+  - **Error**: 409 Conflict if build already in progress
+  - **Concurrency**: Only one build at a time; concurrent requests rejected
+- **`/api/index/status`** GET - Returns index metadata and current build status
+  - **Response fields**:
+    - `exists`: Whether index file exists
+    - `index_path`: Path to index file
+    - `count`: Number of indexed images (from loaded index, not current build)
+    - `meta`: Index metadata (hash info, timestamps, errors, stats)
+    - `build_status`: Current or last build progress (null if no build started)
+      - `operation`: "build" | "update"
+      - `status`: "running" | "completed" | "failed"
+      - `progress`: Files processed so far
+      - `total`: Total files (only set on completion)
+      - `started_at`: ISO timestamp
+      - `completed_at`: ISO timestamp (null if running)
+      - `error`: Error message (null unless failed)
 
 ### Other
 - **`/api/config`** - Returns server configuration including version, library paths, defaults, and hash metadata
@@ -179,6 +196,34 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 
 ### Startup Behavior
 - Index is loaded on server startup if index file exists; index build/update happens only explicitly via `/api/index`.
+
+## Async Index Building
+
+### Architecture
+- **Module**: `server/index_builder_coordinator.py` - Manages async build operations
+- **Threading**: Single background thread runs build/update, main thread handles API requests
+- **Concurrency**: Only one build at a time (reject concurrent requests with 409 Conflict)
+- **Progress tracking**: Progress callbacks from builders report count every 100 files
+- **State management**: Thread-safe with `threading.Lock`, in-memory only (lost on server restart)
+- **Index safety**: Lookups use existing index during build; new index loaded atomically on completion
+
+### Build Lifecycle
+1. **Start**: POST `/api/index` creates background thread, returns 202 immediately
+2. **Progress**: GET `/api/index/status` polls for updates (recommended: 2 second interval)
+3. **During build**: Lookups continue to use old index (no interruption)
+4. **Completion**: New index loaded atomically, status shows "completed"
+5. **Failure**: Build marks status as "failed", old index remains intact
+
+### Error Handling
+- **Build failure**: Status shows error, old index unchanged, client must retry
+- **Server restart**: In-progress build lost, existing index remains valid
+- **Shutdown**: Server waits up to 30 seconds for build completion before shutdown
+
+### Thread Safety
+- **Lookup safety**: Old index remains loaded during rebuild; new index atomically replaces it on completion
+- **Build isolation**: New index built in temporary variables, swapped in single assignment at end
+- Build status updates protected by coordinator lock
+- No race conditions between lookups and index updates
 
 ## Versioning
 
@@ -208,7 +253,10 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 
 # Web UI
 
+## Main Page
+
 - Minimal page in `server/web/` with subtitle and a Browse button (no heading).
+- **Subtitle**: "Find the closest image match in your photo library" where "photo library" is a clickable link that opens the library status modal.
 - Buttons styled Google Material 3: gray `#f8f9fa` background, `#dadce0` border, `#3c4043` text, sans-serif font (`Google Sans / Roboto`), pill `border-radius: 20px`.
 - After selection, the image is displayed on a canvas; `/api/bbox` is called and the bbox is drawn.
 - Bbox can be resized by dragging corner handles (L-shaped lines); high-contrast double-stroke rectangle for visibility and larger hit area near edges.
@@ -218,6 +266,24 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 - Mobile picker: `accept="image/*"` + `capture="environment"` encourages camera option.
 - UI renders images using EXIF orientation when supported (`createImageBitmap` with `imageOrientation: from-image`).
 - Cache-busting: `?v=devN` query params on CSS/JS links in `index.html`; bump on each change.
+
+## Library Status Modal
+
+- **Trigger**: Click "photo library" link in subtitle
+- **Modal content**:
+  - Library paths from config (monospace, word-break for long paths)
+  - Index status with Material 3 styled badges:
+    - ✓ Ready (green): Index exists and ready
+    - 🔄 Building... (blue): Build in progress with spinner, shows progress count and start time
+    - ⚠ Error (red): Build failed with error message
+    - ℹ No Index (yellow): No index found
+  - Index details: Total files, last built/updated timestamp, or progress during build
+  - Build Index button: Triggers incremental update (POST `/api/index` without rebuild parameter)
+- **Auto-refresh**: Polls `/api/config` and `/api/index/status` every 5 seconds while modal is open
+- **Close methods**: X button, Close button, click overlay, Escape key
+- **Styling**: Material 3 design with rounded corners, subtle shadows, color-coded status badges
+- **Progress updates**: Real-time display during build (files processed, started timestamp)
+- **Button states**: Build button disabled during build, shows "Building..." text
 
 ---
 
@@ -267,9 +333,12 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 
 ## Dev Tools
 
-- `scripts/build_index_cli.py` calls `/api/index`:
+- `scripts/build_index_cli.py` - Async index builder with progress polling:
   - Default: `python scripts/build_index_cli.py 127.0.0.1:14322` → incremental update
   - Rebuild: `python scripts/build_index_cli.py 127.0.0.1:14322 --rebuild` → full rebuild
+  - Polls `/api/index/status` every 2 seconds (configurable via `--poll-interval`)
+  - Shows progress updates as files are processed
+  - Exits on completion/failure with appropriate return code
 - `tools/lookup_image_cli.py` calls `/api/bbox` and `/api/lookup`.
 
 ## Code Quality & Linting (CRITICAL)

@@ -4,12 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Photo lookup</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=dev11" />
+    <link rel="stylesheet" href="/assets/styles.css?v=dev14" />
   </head>
   <body>
     <main class="page">
       <section class="card">
-        <p class="sub">Find the closest image match in your library</p>
+        <p class="sub">Find the closest image match in your <a href="#" id="libraryLink" class="library-link">photo library</a></p>
         <div class="actions">
           <input
             id="fileInput"
@@ -47,6 +47,36 @@
         </div>
       </section>
     </main>
-    <script type="module" src="/assets/app.js?v=dev13"></script>
+
+    <!-- Library Status Modal -->
+    <div id="libraryModal" class="modal" hidden>
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Photo Library Status</h2>
+          <button id="modalClose" class="modal-close" type="button">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="info-section">
+            <div class="info-label">Library Paths:</div>
+            <ul id="libraryPaths" class="library-paths"></ul>
+          </div>
+
+          <div class="info-section">
+            <div class="info-row">
+              <span class="info-label">Index Status:</span>
+              <span id="indexStatus" class="status-badge"></span>
+            </div>
+            <div id="indexDetails" class="index-details"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="modalCloseBtn" class="btn btn-secondary" type="button">Close</button>
+          <button id="buildBtn" class="btn btn-primary" type="button">Build Index</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/assets/app.js?v=dev14"></script>
   </body>
 </html>

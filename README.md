@@ -25,7 +25,7 @@ docker-compose up -d
 
 3. Open http://YOUR_SERVER_IP:14322 in your browser
 
-4. Build the index (one-time setup):
+4. Build the index (one-time setup) via Web UI or:
 ```bash
 python scripts/build_index_cli.py YOUR_SERVER_IP:14322 --rebuild
 ```
@@ -77,26 +77,33 @@ Create `config.json` in your data directory:
 
 ### Web UI
 
-Open http://YOUR_SERVER_IP:14322 in your desktop or mobile browser
+Open http://YOUR_SERVER_IP:14322 in your desktop or mobile browser. Click "photo library" in the subtitle to view index status and trigger index builds directly from the web interface.
 
 **Note**: Replace `YOUR_SERVER_IP` with the actual IP address or hostname where the server is running (e.g., `192.168.1.100`, `localhost` if running locally, or a domain name).
 
 ### API Endpoints
 
-- `POST /api/index?rebuild=true` - Build/rebuild index from scratch
-- `POST /api/index` - Update index (add new files, remove deleted)
-- `GET /api/index/status` - Check index status
-- `POST /api/lookup` - Find similar images
-- `POST /api/bbox` - Detect image boundaries
+**Index Management** (asynchronous operations):
+- `POST /api/index?rebuild=true` - Rebuild index from scratch (returns 202, runs in background)
+- `POST /api/index` - Update index incrementally (add new/remove deleted, default)
+- `GET /api/index/status` - Check index status and build progress
+
+**Lookup & Detection**:
+- `POST /api/lookup` - Find similar images (with optional bbox parameter)
+- `POST /api/bbox` - Detect image boundaries in uploaded photo
+- `GET /api/image?id=<image_id>` - Retrieve image by ID
+
+**Other**:
 - `GET /api/config` - Get server configuration
+- `GET /api/health` - Health check endpoint
 
 ## How It Works
 
-1. **Index Building**: PhotoLookup scans your photo directories and creates perceptual hashes (compact fingerprints) for each image. On an 8-core system, expect ~25-30 images/second.
+1. **Index Building**: PhotoLookup scans your photo directories and creates perceptual hashes (compact fingerprints) for each image. On an 8-core system, expect ~25-30 images/second. Index building runs asynchronously in the background.
 
 2. **Boundary Detection**: When you upload a photo of a photobook page, the algorithm detects the actual image area, removing borders and backgrounds. This preprocessing improves matching accuracy.
 
-3. **Similarity Search**: Your query image is hashed and compared against the index. Results are ranked by perceptual distance (0.0 = identical, 1.0 = completely different).
+3. **Similarity Search**: Your query image is hashed and compared against the index. Results are ranked by perceptual distance (0.0 = identical, higher values = more different). The web UI displays this as "confidence" (1 - distance) for easier interpretation.
 
 ## Docker Deployment
 
