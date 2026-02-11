@@ -31,6 +31,20 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="PhotoLookup", version="0.1.0")
 
 WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
+VERSION_FILE = os.path.join(os.path.dirname(__file__), "..", "VERSION")
+
+
+def _read_version() -> str:
+    """Read version from VERSION file."""
+    try:
+        with open(VERSION_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as exc:
+        logger.warning(f"Failed to read VERSION file: {exc}")
+        return "unknown"
+
+
+_VERSION = _read_version()
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -195,6 +209,7 @@ def get_image(image_id: str = Query(..., alias="id")) -> Response:
 def get_config() -> JSONResponse:
     return JSONResponse(
         {
+            "version": _VERSION,
             "image_library_dirs": _CONFIG.image_library_dirs,
             "index_path": _CONFIG.index_path,
             "top_k_default": _CONFIG.top_k_default,

@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY server/ ./server/
+COPY VERSION .
 
 # Create data directory with proper permissions
 RUN mkdir -p /data && chown photolookup:photolookup /data

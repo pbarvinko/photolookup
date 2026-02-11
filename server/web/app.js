@@ -12,6 +12,7 @@ const sliderTrack = document.getElementById('sliderTrack');
 const slideStatus = document.getElementById('slideStatus');
 const sliderPrev = document.getElementById('sliderPrev');
 const sliderNext = document.getElementById('sliderNext');
+const versionText = document.getElementById('versionText');
 
 let currentImage = null;
 let currentBBox = null;
@@ -590,3 +591,19 @@ function drawCornerLines(corner, length) {
     ctx.stroke();
   }
 }
+
+async function fetchVersion() {
+  try {
+    const response = await fetch('/api/config');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.version) {
+        versionText.textContent = `PhotoLookup v${data.version}`;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch version', err);
+  }
+}
+
+fetchVersion();

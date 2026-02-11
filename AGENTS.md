@@ -174,11 +174,18 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 - **`/api/index/status`** - Returns index metadata and status
 
 ### Other
-- **`/api/config`** - Returns server configuration
+- **`/api/config`** - Returns server configuration including version, library paths, defaults, and hash metadata
 - **`/api/health`** - Health check endpoint
 
 ### Startup Behavior
 - Index is loaded on server startup if index file exists; index build/update happens only explicitly via `/api/index`.
+
+## Versioning
+
+- **VERSION file**: Single source of truth at project root (e.g., `0.1.1`)
+- **Exposure**: Version is read at startup and exposed via `/api/config` endpoint
+- **Web UI**: Displays version in footer as "PhotoLookup v{version}"
+- **Docker**: VERSION file is copied into image during build
 
 ## Configuration System
 
@@ -207,6 +214,7 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 - Bbox can be resized by dragging corner handles (L-shaped lines); high-contrast double-stroke rectangle for visibility and larger hit area near edges.
 - **Detected-image carousel**: Slider placeholder matches preview canvas dimensions (width + height) via `syncSliderSize()`. A `ResizeObserver` on `previewCanvas` keeps them in sync on resize. Images use `object-fit: contain; object-position: center` to fit without distortion.
 - **Slider nav buttons**: Circular prev/next buttons (`40×40`, `border-radius: 50%`) vertically centered inside the slider, inset 8px from edges. Shown/hidden per slide position. Swipe handler guards against button clicks (`event.target.closest('.slider-btn')`).
+- **Version footer**: Fixed position at bottom of page, small centered text showing "PhotoLookup v{version}", fetched from `/api/config` on page load.
 - Mobile picker: `accept="image/*"` + `capture="environment"` encourages camera option.
 - UI renders images using EXIF orientation when supported (`createImageBitmap` with `imageOrientation: from-image`).
 - Cache-busting: `?v=devN` query params on CSS/JS links in `index.html`; bump on each change.
@@ -218,6 +226,7 @@ Core lookup algorithm that finds similar images in the library. Uses perceptual 
 ## Docker Deployment
 
 - **Dockerfile**: Python 3.11-slim base, non-root user (UID 1000), port 14322
+- **VERSION file**: Copied into image at `/app/VERSION` for runtime version detection
 - **docker-compose.yml**: Simplified setup with volume mounts and environment variables
 - **Data volume**: Mount host directory to `/data` in container (contains config.json and index.json)
 - **Photo mounts**: Read-only mounts for photo libraries (e.g., `/mnt/library:ro`)
