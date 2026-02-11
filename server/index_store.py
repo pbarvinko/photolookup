@@ -7,7 +7,7 @@ import mimetypes
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from PIL import Image, ImageOps
 
@@ -39,7 +39,11 @@ class IndexStore:
         return self._items is not None and self._meta is not None
 
     def build(self) -> IndexData:
-        """Build the image index using parallel or sequential processing based on config."""
+        """Build the image index from scratch, discarding any existing index."""
+        # Clear existing index
+        self._meta = None
+        self._items = None
+
         # Log each top-level directory
         for lib_dir in self._config.image_library_dirs:
             logger.info(f"Processing directory: {lib_dir}")
@@ -66,9 +70,12 @@ class IndexStore:
             logger.warning(f"Encountered {len(errors)} errors during indexing")
 
         # Create metadata
+        now = datetime.now(timezone.utc).isoformat()
         meta = {
             "hash": get_hash_meta(),
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": now,
+            "updated_at": now,
+            "operation": "build",
             "library_dirs": list(self._config.image_library_dirs),
             "errors": errors,
         }
@@ -87,6 +94,125 @@ class IndexStore:
         for path in _iter_image_files(
             self._config.image_library_dirs, self._config.include_extensions
         ):
+            try:
+                image = _load_image(path)
+                image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()
+                items[image_id] = {
+                    "path": path,
+                    "hash": _hash_image(image),
+                }
+                processed_count += 1
+
+                # Log progress every 100 files
+                if processed_count % 100 == 0:
+                    logger.info(f"Processed {processed_count} files...")
+
+            except Exception as exc:
+                error_msg = f"{path}: {exc}"
+                errors.append(error_msg)
+                logger.error(f"Failed to process image: {error_msg}")
+
+        return items, errors
+
+    def update(self) -> IndexData:
+        """
+        Incrementally update the index:
+        - Remove entries for files that no longer exist
+        - Add entries for new files not in the index
+        """
+        # Ensure index is loaded
+        self.init()
+
+        # If no index exists, build from scratch
+        if not self.is_loaded():
+            logger.info("No existing index found, building from scratch")
+            return self.build()
+
+        logger.info(f"Validating existing entries: {len(self._items)} images")
+
+        # Step 1: Remove entries for files that no longer exist
+        removed_paths = []
+        for image_id in list(self._items.keys()):
+            path = self._items[image_id]["path"]
+            if not os.path.exists(path):
+                removed_paths.append(path)
+                del self._items[image_id]
+
+        if removed_paths:
+            logger.info(f"Removed {len(removed_paths)} entries (files no longer exist)")
+
+        # Step 2: Build mapping of existing paths for efficient lookup
+        existing_paths = {item["path"] for item in self._items.values()}
+
+        # Step 3: Discover all current files in library directories
+        logger.info("Scanning for new files...")
+        new_paths = []
+        for path in _iter_image_files(
+            self._config.image_library_dirs, self._config.include_extensions
+        ):
+            if path not in existing_paths:
+                new_paths.append(path)
+
+        if new_paths:
+            logger.info(f"Found {len(new_paths)} new files to add")
+
+            # Step 4: Process new files using parallel or sequential
+            if self._config.build_workers == 1:
+                logger.info("Using sequential processing (build_workers=1)")
+                new_items, errors = self._build_sequential_for_paths(new_paths)
+            else:
+                try:
+                    from .index_builder import build_index_parallel
+
+                    new_items, errors = build_index_parallel(
+                        iter(new_paths), workers=self._config.build_workers
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Parallel processing failed ({exc}), falling back to sequential"
+                    )
+                    new_items, errors = self._build_sequential_for_paths(new_paths)
+
+            # Step 5: Merge new items into existing index
+            self._items.update(new_items)
+
+            logger.info(f"Processing complete: {len(new_items)} files added, {len(errors)} errors")
+            if errors:
+                logger.warning(f"Encountered {len(errors)} errors during update")
+        else:
+            logger.info("No new files found")
+            errors = []
+
+        # Step 6: Update metadata
+        meta = {
+            "hash": get_hash_meta(),
+            "created_at": self._meta.get("created_at")
+            if self._meta
+            else datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "operation": "update",
+            "library_dirs": list(self._config.image_library_dirs),
+            "errors": errors,
+            "stats": {
+                "added": len(new_paths),
+                "removed": len(removed_paths),
+                "total": len(self._items),
+            },
+        }
+
+        self._meta = meta
+        self._save()
+        return self.get_index()
+
+    def _build_sequential_for_paths(
+        self, paths: list[str]
+    ) -> tuple[dict[str, dict[str, str]], list[str]]:
+        """Sequential processing for a specific list of paths."""
+        items: dict[str, dict[str, str]] = {}
+        errors: list[str] = []
+        processed_count = 0
+
+        for path in paths:
             try:
                 image = _load_image(path)
                 image_id = hashlib.sha256(path.encode("utf-8")).hexdigest()

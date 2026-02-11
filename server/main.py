@@ -123,10 +123,22 @@ def index_status() -> dict[str, Any]:
 
 
 @app.post("/api/index")
-def build_index_endpoint() -> dict[str, Any]:
-    logger.info("Building index...")
-    data = _INDEX_STORE.build()
-    logger.info(f"Index built successfully: {_INDEX_STORE.get_count()} images")
+def build_index_endpoint(rebuild: bool = Query(False)) -> dict[str, Any]:
+    """
+    Build or update the image index.
+
+    Query params:
+        rebuild: If True, rebuild from scratch. If False (default), incrementally update.
+    """
+    if rebuild:
+        logger.info("Rebuilding index from scratch...")
+        data = _INDEX_STORE.build()
+        logger.info(f"Index rebuilt successfully: {_INDEX_STORE.get_count()} images")
+    else:
+        logger.info("Updating index...")
+        data = _INDEX_STORE.update()
+        logger.info(f"Index updated successfully: {_INDEX_STORE.get_count()} images")
+
     return {
         "index_path": _CONFIG.index_path,
         "count": _INDEX_STORE.get_count(),

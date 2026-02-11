@@ -191,7 +191,7 @@ function renderMatches() {
     return;
   }
   sliderTrack.innerHTML = '';
-  matches.slice(0, 3).forEach((match) => {
+  matches.forEach((match) => {
     const slide = document.createElement('div');
     slide.className = 'slide';
 
@@ -232,7 +232,7 @@ const sliderResizeObserver = new ResizeObserver(() => {
 sliderResizeObserver.observe(previewCanvas);
 
 function updateSlider() {
-  const count = Math.min(matches.length, 3);
+  const count = matches.length;
   if (!count) {
     slideStatus.textContent = '';
     sliderPrev.hidden = true;
@@ -248,13 +248,13 @@ function updateSlider() {
 }
 
 function clampActiveIndex() {
-  const count = Math.min(matches.length, 3);
+  const count = matches.length;
   activeIndex = Math.max(0, Math.min(activeIndex, count - 1));
 }
 
 function onSliderPointerDown(event) {
   if (event.target.closest('.slider-btn')) return;
-  const count = Math.min(matches.length, 3);
+  const count = matches.length;
   if (!count || count === 1 || !slider) return;
   swipeStart = {
     id: event.pointerId,
